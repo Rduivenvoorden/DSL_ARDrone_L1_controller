@@ -132,6 +132,12 @@ class Status:
 
 #####################   Main Controller Code    ################################
 
+# class DroneController(DroneVideoDisplay):
+# 
+#  
+#   def __init__(self):
+#     super(DroneController,self).__init__)
+
 class DroneController(DroneVideoDisplay):
 
   # Member Variables
@@ -139,14 +145,14 @@ class DroneController(DroneVideoDisplay):
   desired_state = State()
   command       = DroneCommand()
   status        = Status()
-  
+
   # some parameters
   tau_x = 0.6 #original was 1.5
   tau_y = 0.6 #original was 1.5
   tau_z = 0.8
   tau_w = 0.7
   zeta  = 0.707 #original was 0.707
-  
+
   g = 9.81
   max_euler = 0.
   max_vz    = 0.
@@ -220,15 +226,10 @@ class DroneController(DroneVideoDisplay):
     # L1 adaptive output control parameters -- for L1 control of x_dot
     ###########################################################################
     
-    ### L1 low pass filter
-#    self.omega_cutoff = np.diag( np.array( [1.4, 1.4, 1.5] ) ) # first order
-    #self.omega_cutoff = np.diag( np.array( [1.85, 1.3, 6.5] ) ) # third order (om_cz=9.0 is too high)
-    self.omega_cutoff = np.diag( np.array( [1.7, 1.7, 6.75] ) ) # third order
-#    self.omega_cutoff = np.diag( np.array( [8.0, 8.0, 6.75] ) ) # low-level third order
+    # directory in which to save CSV file
+    self.save_dir = '/home/dsl5/L1_experiments/'
 
-    #self.K = 20*np.diag(np.array([6.0, 6.0, 8.0]))
-    # self.K = np.diag(np.array([1.0, 1.0, 1.0]))
-    self.K = np.diag(np.array([0.8, 0.8, 2.0]))
+    ### Initialize zero vectors 
 
     self.x_L1_des = np.array([[0.0],[0.0],[0.0]])
 
@@ -240,51 +241,115 @@ class DroneController(DroneVideoDisplay):
     self.y = np.array([[0.0],[0.0],[0.0]])
 
     self.oldtime = rospy.get_rostime() # for integration
-    
-    # proportional gain for outer position loop
-    self.old_pos_error = np.array([[0.0],[0.0],[0.0]])
-#    self.Pgain = np.array([[0.5],[0.5],[0.5]]) # first order
-    #self.Pgain = np.array([[0.57],[0.2],[0.75]])
-    self.Pgain = np.array([[0.25],[0.25],[1.00]]) # third order
-#    self.Pgain = np.array([[0.45],[0.075],[1.00]]) # low level - third order - P only
-#    self.Pgain = np.array([[0.9],[0.5],[1.00]]) # low level - third order - PD
-    self.Dgain = 0*0.08*np.array([[0.6],[0.85],[0.0]]) # low level - third order
-###
-    ### L1 adaptive estimation ###
-    self.Gamma = 80.0 # L1 adaptive gain (80 is good for z-direction) # third order
-#    self.Gamma = np.array([[100.0], [100.0], [80.0]]) # L1 adaptive gain # low-level third order
+
 
     self.sigma_hat = np.array([[0.0],[0.0],[0.0]]) # adaptive estimate
-    
-    ### Projection Operator - convex set ###
-    self.sigma_hat_max = 20.0 # maximum absolute nominal value of sigma_hat
-    self.epsilon_sigma = 0.1 # tolerance on maximum sigma_hat
 
     self.desired_vel = np.array([[0.0],[0.0],[0.0]])
 
-    ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
-    # M_i(s) = m_i/(s+m_i), i = x,y,z
-    # A_m = diag(-mx -my -mz), B_m = diag(mx my mz)
-    ##self.A_m = np.diag(np.array([-4.0, -1.0, -1.0]))
-    #self.A_m = np.diag(np.array([-25.0, -25.0, -4.5])) # USE THIS FOR L1 OUTPUT POSITION
-#    self.A_m = np.diag(np.array([-15.0, -15.0, -25.0])) # USE THIS FOR L1 OUTPUT VELOCITY >> first order C
-    self.A_m = np.diag(np.array([-2.4, -2.4, -7.0])) # USE THIS FOR L1 OUTPUT VELOCITY >> third order C
-#    self.A_m = np.diag(np.array([-15.0, -15.0, -7.0])) # L1 low level - third order C
-    self.B_m = -self.A_m
-    
-    self.B_inv = np.linalg.inv(self.B_m)
-
-    self.omega_0 = np.eye(3)
-    
     self.x_ref = np.array([[0.0],[0.0],[0.0]]) # initialize reference x position
 
+    self.old_pos_error = np.array([[0.0],[0.0],[0.0]])
     self.old_err = np.array([[0.0],[0.0],[0.0]])
 
-    # Create csv file
-    with open('/home/dsl5/l1_ref_output.csv','ab') as ref_model:
-      writer = csv.writer(ref_model)
-      # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3), rpy(1:3)
-      writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.desired_vel[0][0], self.desired_vel[1][0], self.desired_vel[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], filtered_track_error[0][0], filtered_track_error[1][0], filtered_track_error[2][0]]))
+
+    ### Now initialize L1 parameters based on L1 architecture
+    if self.L1_type == 1:
+      print "L1 x-y-z position controller with piecewice constant adaptation"
+      
+      ### L1 low pass filter
+      #self.K = 20*np.diag(np.array([6.0, 6.0, 8.0]))
+      #self.K = np.diag(np.array([1.0, 1.0, 1.0]))
+      self.K = np.diag(np.array([0.8, 0.8, 2.0]))
+      self.omega_0 = np.eye(3)
+
+      # L1 parameter adaptation
+      self.Gamma = 80.0
+
+      ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
+      # M_i(s) = m_i/(s+m_i), i = x,y,z
+
+      ##self.A_m = np.diag(np.array([-4.0, -1.0, -1.0]))
+      self.A_m = np.diag(np.array([-25.0, -25.0, -4.5])) # USE THIS FOR L1 OUTPUT POSITION
+      self.B_m = -self.A_m
+    
+      #self.B_inv = np.linalg.inv(self.B_m)
+
+      ### Create CSV file to keep a record of the parameters that produced the recorded results
+      with open(self.save_dir+'l1_experiment_info.csv','ab') as l1_info:
+        writer = csv.writer(l1_info)
+        writer.writerow(['L1_type', 'omega_cx', 'omega_cy', 'omega_cz', 'm_x', 'm_y', 'm_z', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'Gamma'])
+        writer.writerow(np.array( [self.L1_type, self.K[0][0], self.K[1][1], self.K[2][2], self.A_m[0][0], self.A_m[1][1], self.A_m[2][2], self.omega_0[0][0], self.omega_0[1][1], self.omega_0[2][2], 0, 0, 0, self.Gamma ] ))
+
+    
+    elif self.L1_type == 2:
+      print "L1 x-y-z translational velocity controller with projection based adaptation"
+
+      ### L1 low pass filter cutoff frequency
+      #self.omega_cutoff = np.diag( np.array( [1.4, 1.4, 1.5] ) ) # first order
+      #self.omega_cutoff = np.diag( np.array( [1.85, 1.3, 6.5] ) ) # third order (om_cz=9.0 is too high)
+      self.omega_cutoff = np.diag( np.array( [1.7, 1.7, 6.75] ) ) # third order
+
+      self.Pgain = np.array([[0.25],[0.30],[1.00]]) # third order
+
+      # L1 parameter adaptation
+      self.Gamma = 80.0
+
+      ### Projection Operator - convex set ###
+      self.sigma_hat_max = 20.0 # maximum absolute nominal value of sigma_hat
+      self.epsilon_sigma = 0.1 # tolerance on maximum sigma_hat
+
+      ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
+      # M_i(s) = m_i/(s+m_i), i = x,y,z
+#      self.A_m = np.diag(np.array([-15.0, -15.0, -25.0])) # USE THIS FOR L1 OUTPUT VELOCITY >> first order C
+      self.A_m = np.diag(np.array([-2.4, -2.4, -7.0])) # USE THIS FOR L1 OUTPUT VELOCITY >> third order C
+      self.B_m = -self.A_m
+    
+      ### Create CSV file to keep a record of the parameters that produced the recorded results
+      with open(self.save_dir+'l1_experiment_info.csv','ab') as l1_info:
+        writer = csv.writer(l1_info)
+        writer.writerow(['L1_type', 'omega_cx', 'omega_cy', 'omega_cz', 'm_x', 'm_y', 'm_z', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'Gamma'])
+        writer.writerow(np.array( [self.L1_type, self.omega_cutoff[0][0], self.omega_cutoff[1][1], self.omega_cutoff[2][2], self.A_m[0][0], self.A_m[1][1], self.A_m[2][2], 0, 0, 0, 0, 0, 0, self.Gamma ] ))
+
+
+    elif self.L1_type == 3:
+      print "L1 roll-pitch angle, z velocity controller with projection based adaptation"
+
+      ### L1 low pass filter cutoff frequency
+      self.omega_cutoff = np.diag( np.array( [8.0, 8.0, 6.75] ) ) # low-level third order
+
+
+      self.Pgain = np.array([[0.45],[0.075],[1.00]]) # low level - third order - P only
+#      self.Pgain = np.array([[0.9],[0.5],[1.00]]) # low level - third order - PD
+      self.Dgain = 0*0.08*np.array([[0.6],[0.85],[0.0]]) # low level - third order
+
+      ### L1 adaptive estimation ###
+      self.Gamma = 80.0 # L1 adaptive gain (80 is good for z-direction) # third order
+#      self.Gamma = np.array([[100.0], [100.0], [80.0]]) # L1 adaptive gain # low-level third order
+    
+      ### Projection Operator - convex set ###
+      self.sigma_hat_max = 20.0 # maximum absolute nominal value of sigma_hat
+      self.epsilon_sigma = 0.1 # tolerance on maximum sigma_hat
+
+      ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
+      # M_i(s) = m_i/(s+m_i), i = x,y,z
+      # A_m = diag(-mx -my -mz), B_m = diag(mx my mz)
+      self.A_m = np.diag(np.array([-15.0, -15.0, -7.0])) # L1 low level - third order C
+      self.B_m = -self.A_m
+
+      ### Create CSV file to keep a record of the parameters that produced the recorded results
+      with open(self.save_dir+'l1_experiment_info.csv','ab') as l1_info:
+        writer = csv.writer(l1_info)
+  
+        writer.writerow(['L1_type', 'omega_cx', 'omega_cy', 'omega_cz', 'm_x', 'm_y', 'm_z', 'Pgain_x', 'Pgain_y', 'Pgain_z', 'Dgain_x', 'Dgain_y', 'Dgain_z', 'Gamma'])
+  
+        writer.writerow(np.array( [self.L1_type, self.omega_cutoff[0][0], self.omega_cutoff[1][1], self.omega_cutoff[2][2], self.A_m[0][0], self.A_m[1][1], self.A_m[2][2], self.Pgain[0][0], self.Pgain[1][0], self.Pgain[2][0], self.Dgain[0][0], self.Dgain[1][0], self.Dgain[2][0], self.Gamma ] ))
+      
+      
+    else:
+      print "Standard DSL PD nonlinear controller"
+      # No L1 parameters to define#
+      
 
     print "created csv data file"
 
@@ -339,13 +404,14 @@ class DroneController(DroneVideoDisplay):
     #    The L1 adaptive output feedback structure revises the desired state 
     ###########################################################################
     
-    if self.L1_type == 3:
+    if self.L1_type == 4:
       # then use Projection based l1 output feedback on pitch, roll and z velocity
       
       ##### NOTE #####
       ##### x_L1_des = [ [phi_L1_des], [theta_L1_des], [z_dot_L1_des] ]
       ##### x_ref = [ [phi_ref], [theta_ref], [z_dot_ref] ]
       ##### 
+      
       
       # first check whether drone is in flying mode
       # only use L1 when flying: 2 - landed, 6 - taking off, 3 - flying
@@ -385,7 +451,8 @@ class DroneController(DroneVideoDisplay):
         # convert acceleration into roll/pitch angles [rad]
         pitch_out =  np.arcsin(ax_b)
         roll_out  = -np.arcsin(ay_b)
-        
+
+
         
       else:
         # use L1 control when in flying mode
@@ -395,7 +462,7 @@ class DroneController(DroneVideoDisplay):
         ### Projection Operator to update sigma_hat based on y_tilde            ###
         f = ((self.epsilon_sigma + 1.0)*(self.sigma_hat.T.dot( self.sigma_hat )[0][0] ) - self.sigma_hat_max**2)/(self.epsilon_sigma*self.sigma_hat_max**2)
         grad_f = 2.0*(self.epsilon_sigma + 1.0)/(self.epsilon_sigma*self.sigma_hat_max**2)*self.sigma_hat
-        
+    
         if f<0:
           projection_result = -y_tilde
         else:
@@ -403,7 +470,7 @@ class DroneController(DroneVideoDisplay):
             projection_result = -y_tilde
           else:
             projection_result = -y_tilde + (1/np.linalg.norm(grad_f))*(grad_f)*grad_f.T.dot(y_tilde)[0][0]*f
-            
+      
         # multiply by adaptive Gain and integrate 
         sigma = self.sigma_hat + dt*(self.Gamma*projection_result)
         
@@ -428,11 +495,11 @@ class DroneController(DroneVideoDisplay):
         # first find derivative of input signal (i.e. u = track_error, u_dot = d/dt(track_error) )
         self.u_dot = 1/dt*(track_error - self.u) # u_dot = 1/dt*(u - u_old)
         self.u = track_error # set current u to track_error (in next iteration, this is automatically u_old)
-        
+      
         self.y_ddot = self.y_ddot + dt*(-3*self.omega_cutoff.dot(self.y_ddot) - 3*(self.omega_cutoff**2).dot(self.y_dot) - (self.omega_cutoff**3).dot(self.y) + 3*(self.omega_cutoff**2).dot(self.u_dot) + (self.omega_cutoff**3).dot(self.u) )
         self.y_dot = self.y_dot + dt*(self.y_ddot)
         self.y = self.y + dt*(self.y_dot)
-        
+      
         # low pass filter output is L1 desired
         filtered_track_error = self.y
 
@@ -470,7 +537,7 @@ class DroneController(DroneVideoDisplay):
         self.x_ref = self.x_ref + dt*self.B_m.dot( -self.x_ref + self.x_L1_des + self.sigma_hat )
         
         # append to csv file
-        with open('/home/dsl5/l1_ref_output.csv','ab') as ref_model:
+        with open(self.save_dir+'l1_ref_output.csv','ab') as ref_model:
           writer = csv.writer(ref_model)
           # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3), rpy(1:3)
           writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.desired_vel[0][0], self.desired_vel[1][0], self.desired_vel[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], filtered_track_error[0][0], filtered_track_error[1][0], filtered_track_error[2][0]]))
@@ -557,7 +624,7 @@ class DroneController(DroneVideoDisplay):
           print "roll is NaN before sendCommand"
   
       
-        with open('/home/dsl5/l1_angles.csv','ab') as angles:
+        with open(self.save_dir+'l1_angles.csv','ab') as angles:
           writer = csv.writer(angles)
           writer.writerow(np.array([roll_out, pitch_out, yaw_velocity_out, z_velocity_out, curr.rpy[0], curr.rpy[1], curr.x_dot[2], now.secs, now.nsecs]))
         
@@ -839,7 +906,7 @@ class DroneController(DroneVideoDisplay):
           #self.x_dot_ref = self.x_dot_ref + dt*self.m*(-self.x_dot_ref + self.x_dot_L1_des + self.sigma_hat)
         
           # append to csv file
-          with open('/home/dsl5/l1_ref_output.csv','ab') as ref_model:
+          with open(self.save_dir+'l1_ref_output.csv','ab') as ref_model:
             writer = csv.writer(ref_model)
             # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3)
             writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.desired_vel[0][0], self.desired_vel[1][0], self.desired_vel[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2]]))
@@ -973,7 +1040,7 @@ class DroneController(DroneVideoDisplay):
           print "roll is NaN before sendCommand"
   
       
-        with open('/home/dsl5/l1_angles.csv','ab') as angles:
+        with open(self.save_dir+'l1_angles.csv','ab') as angles:
           writer = csv.writer(angles)
           writer.writerow(np.array([roll_out, pitch_out, yaw_velocity_out, z_velocity_out, curr.rpy[0], curr.rpy[1], curr.x_dot[2], now.secs, now.nsecs]))
         
