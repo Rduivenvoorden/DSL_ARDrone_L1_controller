@@ -243,12 +243,13 @@ class DroneController(DroneVideoDisplay):
     # Artificial Output Disturbance
     ###########################################################################
     self.change_pitch = False
-    self.change_pitch_amount = 15.0/180*np.pi # 10 deg
+    self.change_output_factor = 0.5
 
-
+    '''
     ###########################################################################
     # L1 adaptive output control parameters -- for L1 control of x_dot
     ###########################################################################
+    '''
     
     # directory in which to save CSV file
     self.save_dir = '/home/dsl5/L1_experiments/'
@@ -319,6 +320,8 @@ class DroneController(DroneVideoDisplay):
       ### Projection Operator - convex set ###
       self.sigma_hat_max = 200.0 # maximum absolute nominal value of sigma_hat
       self.epsilon_sigma = 0.1 # tolerance on maximum sigma_hat
+
+      self.delay_until_L1_start = 2.0 #sec
 
       # Check if running in simulation or on real system
       if self.simulation_flag:
@@ -413,6 +416,8 @@ class DroneController(DroneVideoDisplay):
 
       self.medfilter_old = np.array([[0.0],[0.0],[0.0]])
       self.medfilter_oldold = np.array([[0.0],[0.0],[0.0]])
+
+      self.use_angle_pd = False
 
       # Check if running in simulation or on real system
       if self.simulation_flag:
@@ -545,10 +550,11 @@ class DroneController(DroneVideoDisplay):
     # store old time for next call
     self.oldtime = now
     
-    ###########################################################################
-    # L1 Output Feedback Implementation
-    #    The L1 adaptive output feedback structure revises the desired state 
-    ###########################################################################
+    '''
+    ########################################################################
+    # L1 Output Feedback Implementation 
+    ########################################################################
+    '''
     
     if self.L1_type == 3:
       # then use Projection based l1 output feedback on pitch, roll and z velocity
@@ -717,18 +723,6 @@ class DroneController(DroneVideoDisplay):
           writer = csv.writer(ref_model)
           # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3), desired_acc(1:3), rpy(1:3)
           writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.desired_vel[0][0], self.desired_vel[1][0], self.desired_vel[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], desired_acc[0][0], desired_acc[1][0], desired_acc[2][0], curr.rpy[0], curr.rpy[1], curr.rpy[2]]))
-          
-#        self.pubL1des_x.publish(self.x_L1_des[0][0])
-#        self.pubL1des_y.publish(self.x_L1_des[1][0])
-#        self.pubL1des_z.publish(self.x_L1_des[2][0])
-#  
-#        self.pubParama.publish(self.sigma_hat[0][0])
-#        self.pubParamb.publish(self.sigma_hat[1][0])
-#        self.pubParamc.publish(self.sigma_hat[2][0])
-#    
-#        self.pubXref_x.publish(self.x_ref[0][0])
-#        self.pubXref_y.publish(self.x_ref[1][0])
-#        self.pubXref_z.publish(self.desired_vel[2][0])
       
       ###########################################################################
 
@@ -785,8 +779,11 @@ class DroneController(DroneVideoDisplay):
         
         self.SendCommand(roll_out, pitch_out, yaw_velocity_out, z_velocity_out)
 
-###############################################################################
-
+    '''
+    #########################################################################
+    # PROJECTION BASED L1 OUTPUT FEEDBACK on ROLL - PITCH - Z-DOT           #
+    #########################################################################
+    '''
 
     elif self.L1_type == 4:
       # then use L1 augmented standard nonlinear controller with projection based adaptation
@@ -840,7 +837,6 @@ class DroneController(DroneVideoDisplay):
 
       # First check whether drone is in flying mode
       #       only use L1 when flying: 2 - landed, 3 - flying, 4 - hover, 6 - taking off, 7 - hover
-      
       if self.start_flight_timer:
         duration = now.secs - self.start_time
         if duration >= self.delay_until_L1_start:
@@ -951,46 +947,48 @@ class DroneController(DroneVideoDisplay):
           #time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3)
           writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.desired_vel[0][0], self.desired_vel[1][0], self.desired_vel[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], 0,0,0, curr.rpy[0], curr.rpy[1], curr.rpy[2], ax, ay, ax_b, ay_b]))
         
-        ### Send commands
-        z_velocity_out = self.x_L1_des[2][0]
-        pitch_out_L1 =  self.x_L1_des[1][0]
-        roll_out_L1  = self.x_L1_des[0][0]
 
+        if not(self.use_angle_pd):
+          ### Send commands
+          z_velocity_out = self.x_L1_des[2][0]
+          pitch_out =  self.x_L1_des[1][0]
+          roll_out  = self.x_L1_des[0][0]
 
-        ### PD controller in roll-pitch below L1
-        rp_P_gain = 1.7
-        rp_D_gain = 0.3
-        rp_error = np.array([[(roll_out_L1 - curr.rpy[0])],[pitch_out_L1 - curr.rpy[1]]])
-        roll_out = rp_P_gain*(rp_error[0][0]) - rp_D_gain*(1/dt)*(self.old_rp_error[0][0] - rp_error[0][0])
-        pitch_out = rp_P_gain*(rp_error[1][0]) - rp_D_gain*(1/dt)*(self.old_rp_error[1][0] - rp_error[1][0])
-        self.old_rp_error = rp_error
+        else:
+          ### PD controller in roll-pitch below L1
+          z_velocity_out = self.x_L1_des[2][0]
+          pitch_out_L1 =  self.x_L1_des[1][0]
+          roll_out_L1  = self.x_L1_des[0][0]
+    
+          rp_P_gain = 1.7
+          rp_D_gain = 0.3
+          rp_error = np.array([[(roll_out_L1 - curr.rpy[0])],[pitch_out_L1 - curr.rpy[1]]])
+          
+          roll_out = self.clamp( rp_P_gain*(rp_error[0][0]) - rp_D_gain*(1/dt)*(self.old_rp_error[0][0] - rp_error[0][0]), 0.75)
+          pitch_out = self.clamp( rp_P_gain*(rp_error[1][0]) - rp_D_gain*(1/dt)*(self.old_rp_error[1][0] - rp_error[1][0]), 0.75)
+    
+          self.old_rp_error = rp_error
         
       
       #########################################################################
 
       ### Check for valid outputs and LIMIT if necessary
       if np.fabs(pitch_out) > 0.75:
-        print "pitch: ", pitch_out
-        print "ax: ", ax
-        #print "ay: ", ay
-        print "dt: ", dt
+        print "pitch: ", pitch_out, "   ax: ", ax, "   ay: ", ay, "   dt: ", dt
         print "pitch D term: ", check_pitch_D_term
         pitch_out = np.sign(pitch_out)*0.75
 
       elif np.isnan(pitch_out):
-        print "pitch is NaN before sendCommand ******************* ax_b: ", ax_b
+        print "pitch is NaN before sendCommand -- ax_b: ", ax_b
         pitch_out = 0.0
       
       if np.fabs(roll_out) > 0.75:
-        print "roll: ", roll_out
-        #print "ax: ", ax
-        print "ay: ", ay
-        print "dt: ", 
+        print "roll: ", roll_out, "   ax: ", ax, "   ay: ", ay, "   dt: ", dt
         print "roll D term: ", check_roll_D_term
         roll_out = np.sign(roll_out)*0.75
 
       elif np.isnan(roll_out):
-        print "roll is NaN before sendCommand ******************* ay_b: ", ay_b
+        print "roll is NaN before sendCommand -- ay_b: ", ay_b
         roll_out = 0.0
 
       #### send the commands to the drone if the keyboard is not currently being used
@@ -1150,31 +1148,37 @@ class DroneController(DroneVideoDisplay):
         #ax = (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
         #ay = (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
 
-    
-      ##### PROJECTION BASED L1 OUTPUT FEEDBACK on X-DOT #####
+      '''
+      #########################################################################
+      # PROJECTION BASED L1 OUTPUT FEEDBACK ON X-DOT                          #
+      #########################################################################
+      '''
       
       elif self.L1_type == 2:
         # then use Projection based l1 output feedback on translational velocity
-        # first check whether drone is in flying mode
-  
-        # only use L1 when flying: 2 - landed, 6 - taking off, 3 - flying
-#        if (self.status.drone_state != 3): #and (self.status.drone_state !=7):
+
+        # Once takeoff has commenced, start timer and print when L1 has taken over
         if self.start_flight_timer:
           duration = now.secs - self.start_time
+          if duration >= self.delay_until_L1_start:
+             self.print_L1_status = True
+             if self.print_L1_status == self.print_L1_status_flag:
+               print "\nL1 control has taken over\n"
+               self.print_L1_status_flag = False
         else:
           duration = 0
-  
-        if (self.status.drone_state != 3) or duration < 1:# self.delay_until_L1_start:
-    #    if 1:
+
+        # First check whether drone is in flying mode
+        # Only use L1 when flying: 2 - landed, 6 - taking off, 3 - flying
+#        if (self.status.drone_state != 3): #and (self.status.drone_state !=7):  
+        if (self.status.drone_state != 3) or duration < self.delay_until_L1_start:
+
           self.x_L1_des = np.reshape(des.x, (3,-1))
           y_tilde = np.array([[0.0],[0.0],[0.0]])
-          #print self.x_L1_des
-          #print 'no L1, start flying'
-          #print self.status.drone_state
+
         else:
   
           # calculate error between actual and reference state position
-          #y_tilde = self.x_ref - self.desired_vel
           y_tilde = self.x_ref - np.reshape(curr.x_dot, (3,-1))
           
           ### Projection Operator to update sigma_hat based on y_tilde            ###
@@ -1241,8 +1245,6 @@ class DroneController(DroneVideoDisplay):
 
                   
           # find desired velocity for L1 output from proportional controller
-          #desired_vel = 1.0*( -np.reshape(des.x, (3,-1)) + np.reshape(curr.x, (3,-1)) )
-          #self.desired_vel = 0.3*(self.desired_vel + dt*1.0*( -np.reshape(des.x, (3,-1)) + np.reshape(curr.x, (3,-1)) ))
           self.desired_vel = self.Pgain*( np.reshape(des.x, (3,-1)) - np.reshape(curr.x, (3,-1)) )
 
         
@@ -1272,20 +1274,7 @@ class DroneController(DroneVideoDisplay):
         
           # low filter output is L1 desired velocity
           self.x_L1_des = self.y
-        
-#          print self.x_dot_L1_des
-
-#          if math.isnan(self.x_L1_des[0][0]):
-#            print "L1 des x is nan"
-#            self.x_L1_des[0][0] = 0.0
-#
-#          if math.isnan(self.x_L1_des[1][0]):
-#            print "L1 des y is nan"
-#            self.x_L1_des[1][0] = 0.0
-#
-#          if math.isnan(self.x_L1_des[2][0]):
-#            print "L1 des z is nan"
-#            self.x_L1_des[2][0] = 0.0
+          
 
           ### reference model -- M(s) = m/(s+m) -- x_ref = M(s)(u + sigma_hat) ###
           self.x_ref = self.x_ref + dt*self.B_m.dot( -self.x_ref + self.x_L1_des + self.sigma_hat )
@@ -1301,24 +1290,6 @@ class DroneController(DroneVideoDisplay):
             #writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.desired_vel[0][0], self.desired_vel[1][0], self.desired_vel[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2]]))
             # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3), desired_acc(1:3), rpy(1:3)
             writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.desired_vel[0][0], self.desired_vel[1][0], self.desired_vel[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], 0,0,0, curr.rpy[0], curr.rpy[1], curr.rpy[2]]))
-  
-          #if not np.isnan(self.sigma_hat[0][0]):
-            #print 'y-tilde', '\n', y_tilde, '\n'
-            #print 'sigma_hat', '\n', self.sigma_hat, '\n'
-            #print 'des_vel', '\n', self.desired_vel, '\n'
-            #print 'x_dot_l1_des', '\n', self.x_L1_des, '\n'
-          
-          self.pubL1des_x.publish(self.x_L1_des[0][0])
-          self.pubL1des_y.publish(self.x_L1_des[1][0])
-          self.pubL1des_z.publish(self.x_L1_des[2][0])
-    
-          self.pubParama.publish(self.sigma_hat[0][0])
-          self.pubParamb.publish(self.sigma_hat[1][0])
-          self.pubParamc.publish(self.sigma_hat[2][0])
-      
-          self.pubXref_x.publish(self.x_ref[0][0])
-          self.pubXref_y.publish(self.x_ref[1][0])
-          self.pubXref_z.publish(self.desired_vel[2][0])
       
       ###########################################################################
 
@@ -1391,25 +1362,21 @@ class DroneController(DroneVideoDisplay):
   
       ### Check for valid outputs and LIMIT if necessary
       if np.fabs(pitch_out) > 0.75:
-        print "pitch: ", pitch_out
-        print "ax: ", ax
-        print "ay: ", ay
-        print "dt: ", dt
+        print "pitch: ", pitch_out, "   ax: ", ax, "   ay: ", ay, "   dt: ", dt
+        print "pitch D term: ", check_pitch_D_term
         pitch_out = np.sign(pitch_out)*0.75
 
       elif np.isnan(pitch_out):
-        print "pitch is NaN before sendCommand ******************* ax_b: ", ax_b
+        print "pitch is NaN before sendCommand -- ax_b: ", ax_b
         pitch_out = 0.0
       
       if np.fabs(roll_out) > 0.75:
-        print "roll: ", roll_out
-        print "ax: ", ax
-        print "ay: ", ay
-        print "dt: ", 
+        print "roll: ", roll_out, "   ax: ", ax, "   ay: ", ay, "   dt: ", dt
+        print "roll D term: ", check_roll_D_term
         roll_out = np.sign(roll_out)*0.75
 
       elif np.isnan(roll_out):
-        print "roll is NaN before sendCommand ******************* ay_b: ", ay_b
+        print "roll is NaN before sendCommand -- ay_b: ", ay_b
         roll_out = 0.0
   
 #############
@@ -1443,7 +1410,9 @@ class DroneController(DroneVideoDisplay):
     
     # add artificial pitch to perturb system
     if self.change_pitch:
-      pitch = pitch + self.change_pitch_amount
+      pitch = pitch*self.change_output_factor
+      roll = roll*self.change_output_factor
+      z_dot = z_dot*self.change_output_factor
 
 
     if not(math.isnan(pitch)):
@@ -1604,7 +1573,7 @@ class DroneController(DroneVideoDisplay):
         print "Starting experiment :)-" 
         self.sendStartExp()
       elif key == KeyMapping.ChangePitchOut:
-        print "Changed pitch output by ", self.change_pitch_amount, " [rad]"
+        print "Changed roll-pitch-zdot output by a factor of ", self.change_output_factor
         self.change_pitch == True
       else:
         # Now we handle moving, notice that this section is the opposite (+=) of the keyrelease section
