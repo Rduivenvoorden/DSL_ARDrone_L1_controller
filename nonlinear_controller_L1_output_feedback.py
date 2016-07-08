@@ -235,8 +235,10 @@ class DroneController(DroneVideoDisplay):
     self.angles_log = 0 # if 1, l1_angles.csv containing rpy angles is created and logged
 
     self.start_flight_timer = False
-    self.delay_until_L1_start = 0.0
-    self.start_time = 0.0
+    self.print_L1_status = False
+    self.print_L1_status_flag = True
+    #self.delay_until_L1_start = 0.0
+    self.start_time = 0.0 #initialization, value is overwritten at takeoff
     self.delay_until_L1_start = 15.0 #sec
     ###########################################################################
     # Artificial Measurement offset
@@ -415,18 +417,18 @@ class DroneController(DroneVideoDisplay):
       if self.simulation_flag:
         print "\n !!!!!  RUNNING IN SIMULATION !!!!!\n"
         print "L1 augmented standard nonlinear controller with projection based adaptation"
-        # Gamma = 1000, 1000, 100 
+        # Gamma = 1200, 100, 100 
         ### L1 low pass filter cutoff frequency
-        omxy = 0.8
+        omxy = 0.9
         self.omega_cutoff = np.diag( np.array( [omxy, omxy, 2.0] ) ) # NOTE: SIMULATION
 
         ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
-        mxy = -1.1
+        mxy = -0.8
         self.A_m = np.diag(np.array([mxy, mxy, -1.7])) # THIRD ORDER Low Pass Filter
 
-        self.P_L1_correction = (self.tau_x**2)*0.05
-        self.D_L1_correction = self.tau_x/(2.0*self.zeta)*0.05
-        self.P_z_L1_correction = (self.tau_z**2)*0.35
+        self.P_L1_correction = 0.35#1.25#(self.tau_x**2)*0.05
+        self.D_L1_correction = 0.3#1.0#self.tau_x/(2.0*self.zeta)*0.05	
+        self.P_z_L1_correction = (self.tau_z**2)*0.4
 
 #        self.P_L1_correction = 0.3
 #        self.D_L1_correction = 0.0
@@ -438,14 +440,14 @@ class DroneController(DroneVideoDisplay):
         print "L1 augmented standard nonlinear controller with projection based adaptation"
         
         ### L1 low pass filter cutoff frequency
-        omxy = 1.75
+        omxy = 1.6
         self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.5] ) ) # NOTE: SIMULATION
 
         ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
-        mxy = -1.05
+        mxy = -1.1
         self.A_m = np.diag(np.array([mxy, mxy, -2.0])) # THIRD ORDER Low Pass Filter
 
-        self.P_L1_correction = 1.25#(self.tau_x**2)
+        self.P_L1_correction = 1.3#(self.tau_x**2)
         self.D_L1_correction = 1.0#self.tau_x/(2.0*self.zeta)
         self.P_z_L1_correction = 1.05#(self.tau_z**2)
 
@@ -856,6 +858,11 @@ class DroneController(DroneVideoDisplay):
       
       if self.start_flight_timer:
         duration = now.secs - self.start_time
+        if duration >= self.delay_until_L1_start:
+           self.print_L1_status = True
+           if self.print_L1_status == self.print_L1_status_flag:
+             print "\nL1 control has taken over\n"
+             self.print_L1_status_flag = False
       else:
         duration = 0
 
