@@ -315,13 +315,13 @@ class DroneController(DroneVideoDisplay):
     elif self.L1_type == 2:
 
       # L1 parameter adaptation
-      self.Gamma = 150.0
+      self.Gamma =1000.0
 
       ### Projection Operator - convex set ###
       self.sigma_hat_max = 200.0 # maximum absolute nominal value of sigma_hat
       self.epsilon_sigma = 0.1 # tolerance on maximum sigma_hat
 
-      self.delay_until_L1_start = 2.0 #sec
+      self.delay_until_L1_start = 10.0 #sec
 
       # Check if running in simulation or on real system
       if self.simulation_flag:
@@ -352,16 +352,16 @@ class DroneController(DroneVideoDisplay):
         ########## 2016 - 06 - 29 stable z (DO NOT TOUCH z PARAMS) AR.Drone 2_40
         
         ### L1 low pass filter cutoff frequency
-        omxy = 1.45
-        self.omega_cutoff = np.diag( np.array( [omxy, omxy, 2.0] ) ) # NOTE: EXPERIMENTS
+        omxy = 1.55
+        self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.45] ) ) # NOTE: EXPERIMENTS
 
         ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
-        mxy = -1.55
+        mxy = -2.2
 #        self.A_m = np.diag(np.array([-15.0, -15.0, -25.0])) # FIRST ORDER Low Pass Filter
-        self.A_m = np.diag(np.array([mxy, mxy, -1.7])) # THIRD ORDER Low Pass Filter
+        self.A_m = np.diag(np.array([mxy, mxy, -1.65])) # THIRD ORDER Low Pass Filter
 
         ### Proportional position controller
-        pxy = 0.4
+        pxy = 0.5
         self.Pgain = np.array([[pxy],[pxy],[0.35]]) # THIRD ORDER
 
       self.B_m = -self.A_m
@@ -435,10 +435,6 @@ class DroneController(DroneVideoDisplay):
         self.P_L1_correction = 0.35#1.25#(self.tau_x**2)*0.05
         self.D_L1_correction = 0.3#1.0#self.tau_x/(2.0*self.zeta)*0.05	
         self.P_z_L1_correction = (self.tau_z**2)*0.4
-
-#        self.P_L1_correction = 0.3
-#        self.D_L1_correction = 0.0
-#        self.P_z_L1_correction = 0.99
       
       else:
         ###### NOTE: TYPE 4: REAL SYSTEM PARAMETERS ARE HERE ######
@@ -545,6 +541,8 @@ class DroneController(DroneVideoDisplay):
 
     if dt == 0 or dt > 0.1:
       #print 'now: ', now.secs, ' ', now.nsecs*0.000000001, '\n', 'old: ', self.oldtime.secs, ' ', self.oldtime.nsecs*0.000000001, '\n dt: ', dt
+      if dt>0.1:
+        print "####################      dt time longer than 0.1 sec       #################"
       dt = 0.001
 
     # store old time for next call
@@ -779,13 +777,15 @@ class DroneController(DroneVideoDisplay):
         
         self.SendCommand(roll_out, pitch_out, yaw_velocity_out, z_velocity_out)
 
-    '''
-    #########################################################################
-    # PROJECTION BASED L1 OUTPUT FEEDBACK on ROLL - PITCH - Z-DOT           #
-    #########################################################################
-    '''
-
+    
+    
     elif self.L1_type == 4:
+      '''
+      #########################################################################
+      # PROJECTION BASED L1 OUTPUT FEEDBACK on ROLL - PITCH - Z-DOT           #
+      #########################################################################
+      '''
+
       # then use L1 augmented standard nonlinear controller with projection based adaptation
       
       ##### NOTE #####
@@ -1147,14 +1147,13 @@ class DroneController(DroneVideoDisplay):
         #ay = (2.0*self.zeta/self.tau_x)*(des.x_dot[1] - curr.x_dot[1]) + (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
         #ax = (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
         #ay = (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
-
-      '''
-      #########################################################################
-      # PROJECTION BASED L1 OUTPUT FEEDBACK ON X-DOT                          #
-      #########################################################################
-      '''
       
       elif self.L1_type == 2:
+        '''
+        #########################################################################
+        # PROJECTION BASED L1 OUTPUT FEEDBACK ON X-DOT                          #
+        #########################################################################
+        '''
         # then use Projection based l1 output feedback on translational velocity
 
         # Once takeoff has commenced, start timer and print when L1 has taken over
@@ -1173,7 +1172,8 @@ class DroneController(DroneVideoDisplay):
 #        if (self.status.drone_state != 3): #and (self.status.drone_state !=7):  
         if (self.status.drone_state != 3) or duration < self.delay_until_L1_start:
 
-          self.x_L1_des = np.reshape(des.x, (3,-1))
+          self.x_L1_des = np.reshape(des.x_dot, (3,-1))
+          self.x_L1_des[2][0] = z_velocity_out = (1.0/(self.tau_z**2))*( des.x[2] - curr.x[2] )
           y_tilde = np.array([[0.0],[0.0],[0.0]])
 
         else:
@@ -1194,7 +1194,7 @@ class DroneController(DroneVideoDisplay):
               projection_result = -y_tilde + (1/np.linalg.norm(grad_f))*(grad_f)*grad_f.T.dot(y_tilde)[0][0]*f
         
           # multiply by adaptive Gain and integrate 
-          sigma = self.sigma_hat + dt*(np.array([[1],[1],[1.0]])*self.Gamma*projection_result)
+          sigma = self.sigma_hat + dt*(np.array([[1],[1],[1]])*self.Gamma*projection_result)
           
           sigma_x = self.clamp(sigma[0][0], self.sigma_hat_max*(1+self.epsilon_sigma) )
           sigma_y = self.clamp(sigma[1][0], self.sigma_hat_max*(1+self.epsilon_sigma) )
@@ -1259,18 +1259,46 @@ class DroneController(DroneVideoDisplay):
 ##          self.x_L1_des[0][0] = self.x_L1_des[0][0] + dt*1.5*( -self.x_L1_des[0][0] + track_error[0][0] )
 ##          self.x_L1_des[1][0] = self.x_L1_des[1][0] + dt*1.5*( -self.x_L1_des[1][0] + track_error[1][0] )
 ##          self.x_L1_des[2][0] = self.x_L1_des[2][0] + dt*2.0*( -self.x_L1_des[2][0] + track_error[2][0] )
-        
-        
-###	Third Order Low Pass Filter y = C(s)*u
-#          # low pass filter C(s) = (3*omega_cutoff^2*s + omega_cutoff^3)/(s^3 + 3*omega_cutoff*s^2 + 3*omega_cutoff^2*s + omega_cutoff^3)
-#          
-#          # first find derivative of input signal (i.e. u = track_error, u_dot = d/dt(track_error) )
-          self.u_dot = 1/dt*(track_error - self.u) # u_dot = 1/dt*(u - u_old)
+
+
+####	Third Order Low Pass Filter y = C(s)*u
+          self.u_dot[0][0] = 1/dt*(track_error[0][0] - self.u[0][0]) # u_dot = 1/dt*(u - u_old)
+          self.u_dot[1][0] = 1/dt*(track_error[1][0] - self.u[1][0]) # u_dot = 1/dt*(u - u_old)
+          self.u_dot[2][0] = 1/dt*(track_error[2][0] - self.u[2][0]) # u_dot = 1/dt*(u - u_old)
+
           self.u = track_error # set current u to track_error (in next iteration, this is automatically u_old)
+      
+          self.y_ddot[0][0] = self.y_ddot[0][0] + dt*(-3*self.omega_cutoff[0][0]*(self.y_ddot[0][0]) - 3*(self.omega_cutoff[0][0]**2)*(self.y_dot[0][0]) - (self.omega_cutoff[0][0]**3)*(self.y[0][0]) + 3*(self.omega_cutoff[0][0]**2)*(self.u_dot[0][0]) + (self.omega_cutoff[0][0]**3)*(self.u[0][0]) )
+
+          self.y_ddot[1][0] = self.y_ddot[1][0] + dt*(-3*self.omega_cutoff[1][1]*(self.y_ddot[1][0]) - 3*(self.omega_cutoff[1][1]**2)*(self.y_dot[1][0]) - (self.omega_cutoff[1][1]**3)*(self.y[1][0]) + 3*(self.omega_cutoff[1][1]**2)*(self.u_dot[1][0]) + (self.omega_cutoff[1][1]**3)*(self.u[1][0]) )
+
+          self.y_ddot[2][0] = self.y_ddot[2][0] + dt*(-3*self.omega_cutoff[2][2]*(self.y_ddot[2][0]) - 3*(self.omega_cutoff[2][2]**2)*(self.y_dot[2][0]) - (self.omega_cutoff[2][2]**3)*(self.y[2][0]) + 3*(self.omega_cutoff[2][2]**2)*(self.u_dot[2][0]) + (self.omega_cutoff[2][2]**3)*(self.u[2][0]) )
+
+
+          self.y_dot[0][0] = self.y_dot[0][0] + dt*(self.y_ddot[0][0])
+          self.y_dot[1][0] = self.y_dot[1][0] + dt*(self.y_ddot[1][0])
+          self.y_dot[2][0] = self.y_dot[2][0] + dt*(self.y_ddot[2][0])
+
+          self.y[0][0] = self.y[0][0] + dt*(self.y_dot[0][0])
+          self.y[1][0] = self.y[1][0] + dt*(self.y_dot[1][0])
+          self.y[2][0] = self.y[2][0] + dt*(self.y_dot[2][0])
+
+
+
+
+
         
-          self.y_ddot = self.y_ddot + dt*(-3*self.omega_cutoff.dot(self.y_ddot) - 3*(self.omega_cutoff**2).dot(self.y_dot) - (self.omega_cutoff**3).dot(self.y) + 3*(self.omega_cutoff**2).dot(self.u_dot) + (self.omega_cutoff**3).dot(self.u) )
-          self.y_dot = self.y_dot + dt*(self.y_ddot)
-          self.y = self.y + dt*(self.y_dot)
+        
+####	Third Order Low Pass Filter y = C(s)*u
+##          # low pass filter C(s) = (3*omega_cutoff^2*s + omega_cutoff^3)/(s^3 + 3*omega_cutoff*s^2 + 3*omega_cutoff^2*s + omega_cutoff^3)
+##          
+##          # first find derivative of input signal (i.e. u = track_error, u_dot = d/dt(track_error) )
+#          self.u_dot = 1/dt*(track_error - self.u) # u_dot = 1/dt*(u - u_old)
+#          self.u = track_error # set current u to track_error (in next iteration, this is automatically u_old)
+#        
+#          self.y_ddot = self.y_ddot + dt*(-3*self.omega_cutoff.dot(self.y_ddot) - 3*(self.omega_cutoff**2).dot(self.y_dot) - (self.omega_cutoff**3).dot(self.y) + 3*(self.omega_cutoff**2).dot(self.u_dot) + (self.omega_cutoff**3).dot(self.u) )
+#          self.y_dot = self.y_dot + dt*(self.y_ddot)
+#          self.y = self.y + dt*(self.y_dot)
         
           # low filter output is L1 desired velocity
           self.x_L1_des = self.y
@@ -1301,17 +1329,18 @@ class DroneController(DroneVideoDisplay):
   
     
         # calculate the desired acceleration in x and y (global coordinates, [m/s^2] )
-        ax = (2.0*self.zeta/self.tau_x)*1.0*(self.x_L1_des[0][0] - curr.x_dot[0]) ### NOTE: x_L1_des x-velocity
-        ay = (2.0*self.zeta/self.tau_x)*1.0*(self.x_L1_des[1][0] - curr.x_dot[1]) ### NOTE: x_L1_des y-velocity
+        #ax = (2.0*self.zeta/self.tau_x)*1.0*(self.x_L1_des[0][0] - curr.x_dot[0]) ### NOTE: x_L1_des x-velocity
+        #ay = (2.0*self.zeta/self.tau_x)*1.0*(self.x_L1_des[1][0] - curr.x_dot[1]) ### NOTE: x_L1_des y-velocity
         #ay = (2.0*self.zeta/self.tau_x)*(des.x_dot[1] - curr.x_dot[1]) + (1.0/(self.tau_x*self.tau_x))*(des.x[1]-curr.x[1])
-        #ax = (2.0*self.zeta/self.tau_x)*(self.x_L1_des[0][0] - curr.x_dot[0]) + (1.0/(self.tau_x*self.tau_x))*(des.x[0]-curr.x[0]) ### NOTE: x_L1_des x-position
-        #ay = (2.0*self.zeta/self.tau_x)*(self.x_L1_des[1][0] - curr.x_dot[1]) + (1.0/(self.tau_x*self.tau_x))*(des.x[0]-curr.x[1]) ### NOTE: x_L1_des y-position
+        ax = (2.0*self.zeta/self.tau_x)*(self.x_L1_des[0][0] - curr.x_dot[0]) + (1.0/(self.tau_x*self.tau_x))*(des.x[0]-curr.x[0]) ### NOTE: x_L1_des x-position
+        ay = (2.0*self.zeta/self.tau_x)*(self.x_L1_des[1][0] - curr.x_dot[1]) + (1.0/(self.tau_x*self.tau_x))*(des.x[0]-curr.x[1]) ### NOTE: x_L1_des y-position
         
       else:
         # use standard controller
         
         # Z-velocity command m/sec)
-        z_velocity_out =  ((2.0*self.zeta/self.tau_z) * (des.x_dot[2] - curr.x_dot[2]) + (1.0/(self.tau_z**2))*(des.x[2] - curr.x[2]) )
+        z_velocity_out = (1.0/(self.tau_z**2))*( des.x[2] - curr.x[2] )
+        #z_velocity_out =  ((2.0*self.zeta/self.tau_z) * (des.x_dot[2] - curr.x_dot[2]) + (1.0/(self.tau_z**2))*(des.x[2] - curr.x[2]) )
     
         # calculate the desired acceleration in x and y (global coordinates, [m/s^2] )
         ax = (2.0*self.zeta/self.tau_x)*(des.x_dot[0] - curr.x_dot[0]) + (1.0/(self.tau_x*self.tau_x))*(des.x[0]-curr.x[0])
