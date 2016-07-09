@@ -150,7 +150,8 @@ plt.grid(True)
 
 t = exp_time
 #MED_input = L1_input[:,0]*180/np.pi - sigma_hat[:,0]*180/np.pi
-LPF_input = L1_input[:,0]*180/np.pi - sigma_hat[:,0]*180/np.pi
+#LPF_input = L1_input[:,0]*180/np.pi - sigma_hat[:,0]*180/np.pi
+LPF_input = L1_input[:,0] - sigma_hat[:,0]
 #LPF_input = np.zeros(t.shape[0])
 LPF_output = np.zeros(t.shape[0])
 
@@ -201,6 +202,7 @@ plt.figure(10)
 #plt.plot(t,MED_input)
 plt.plot(t,LPF_input)
 plt.plot(t,LPF_output)
+plt.plot(exp_time, x_L1_des[:,0])
 #plt.plot(t,ax)
 #plt.plot(t,ay)
 #plt.plot(t,ax_b)
@@ -289,6 +291,7 @@ plt.plot(exp_time, x_dot[:,2])
 plt.plot(exp_time, x_L1_des[:,2])
 plt.plot(exp_time, L1_input[:,2])
 plt.plot(exp_time, L1_input[:,2] - sigma_hat[:,2])
+plt.plot(exp_time,x_ref[:,2])
 plt.xlabel('Time (sec)')
 plt.ylabel('Velocity (m/s)')
 plt.legend(['z-dot','z-dot-L1','z-dot-des','z-dot-des -- sigma-hat'])
