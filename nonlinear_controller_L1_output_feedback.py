@@ -323,6 +323,8 @@ class DroneController(DroneVideoDisplay):
 
       self.delay_until_L1_start = 10.0 #sec
 
+      self.LPF_type = 1
+
       # Check if running in simulation or on real system
       if self.simulation_flag:
         print "\n !!!!!  RUNNING IN SIMULATION !!!!!\n"
@@ -1252,42 +1254,36 @@ class DroneController(DroneVideoDisplay):
           #track_error = np.reshape(des.x_dot, (3,-1)) - self.sigma_hat
           track_error = self.desired_vel - self.sigma_hat
         
-        
-###	First Order Low Pass Filter
-          # low pass filter C(s) = omega_cutoff / (s + omega_cutoff) ### NOTE: decoupled directions
-#          self.x_L1_des = self.x_L1_des + dt*self.omega_cutoff.dot( -self.x_L1_des + track_error )
+          if self.LPF_type == 1:
+            ###	First Order Low Pass Filter
+            # low pass filter C(s) = omega_cutoff / (s + omega_cutoff) ### NOTE: decoupled directions
+            self.x_L1_des = self.x_L1_des + dt*self.omega_cutoff.dot( -self.x_L1_des + track_error )
 ##          self.x_L1_des[0][0] = self.x_L1_des[0][0] + dt*1.5*( -self.x_L1_des[0][0] + track_error[0][0] )
 ##          self.x_L1_des[1][0] = self.x_L1_des[1][0] + dt*1.5*( -self.x_L1_des[1][0] + track_error[1][0] )
 ##          self.x_L1_des[2][0] = self.x_L1_des[2][0] + dt*2.0*( -self.x_L1_des[2][0] + track_error[2][0] )
 
+          elif self.LPF_type == 3:
+            #### Third Order Low Pass Filter y = C(s)*u
+            self.u_dot[0][0] = 1/dt*(track_error[0][0] - self.u[0][0]) # u_dot = 1/dt*(u - u_old)
+            self.u_dot[1][0] = 1/dt*(track_error[1][0] - self.u[1][0]) # u_dot = 1/dt*(u - u_old)
+            self.u_dot[2][0] = 1/dt*(track_error[2][0] - self.u[2][0]) # u_dot = 1/dt*(u - u_old)
 
-####	Third Order Low Pass Filter y = C(s)*u
-          self.u_dot[0][0] = 1/dt*(track_error[0][0] - self.u[0][0]) # u_dot = 1/dt*(u - u_old)
-          self.u_dot[1][0] = 1/dt*(track_error[1][0] - self.u[1][0]) # u_dot = 1/dt*(u - u_old)
-          self.u_dot[2][0] = 1/dt*(track_error[2][0] - self.u[2][0]) # u_dot = 1/dt*(u - u_old)
-
-          self.u = track_error # set current u to track_error (in next iteration, this is automatically u_old)
+            self.u = track_error # set current u to track_error (in next iteration, this is automatically u_old)
       
-          self.y_ddot[0][0] = self.y_ddot[0][0] + dt*(-3*self.omega_cutoff[0][0]*(self.y_ddot[0][0]) - 3*(self.omega_cutoff[0][0]**2)*(self.y_dot[0][0]) - (self.omega_cutoff[0][0]**3)*(self.y[0][0]) + 3*(self.omega_cutoff[0][0]**2)*(self.u_dot[0][0]) + (self.omega_cutoff[0][0]**3)*(self.u[0][0]) )
+            self.y_ddot[0][0] = self.y_ddot[0][0] + dt*(-3*self.omega_cutoff[0][0]*(self.y_ddot[0][0]) - 3*(self.omega_cutoff[0][0]**2)*(self.y_dot[0][0]) - (self.omega_cutoff[0][0]**3)*(self.y[0][0]) + 3*(self.omega_cutoff[0][0]**2)*(self.u_dot[0][0]) + (self.omega_cutoff[0][0]**3)*(self.u[0][0]) )
 
-          self.y_ddot[1][0] = self.y_ddot[1][0] + dt*(-3*self.omega_cutoff[1][1]*(self.y_ddot[1][0]) - 3*(self.omega_cutoff[1][1]**2)*(self.y_dot[1][0]) - (self.omega_cutoff[1][1]**3)*(self.y[1][0]) + 3*(self.omega_cutoff[1][1]**2)*(self.u_dot[1][0]) + (self.omega_cutoff[1][1]**3)*(self.u[1][0]) )
+            self.y_ddot[1][0] = self.y_ddot[1][0] + dt*(-3*self.omega_cutoff[1][1]*(self.y_ddot[1][0]) - 3*(self.omega_cutoff[1][1]**2)*(self.y_dot[1][0]) - (self.omega_cutoff[1][1]**3)*(self.y[1][0]) + 3*(self.omega_cutoff[1][1]**2)*(self.u_dot[1][0]) + (self.omega_cutoff[1][1]**3)*(self.u[1][0]) )
 
-          self.y_ddot[2][0] = self.y_ddot[2][0] + dt*(-3*self.omega_cutoff[2][2]*(self.y_ddot[2][0]) - 3*(self.omega_cutoff[2][2]**2)*(self.y_dot[2][0]) - (self.omega_cutoff[2][2]**3)*(self.y[2][0]) + 3*(self.omega_cutoff[2][2]**2)*(self.u_dot[2][0]) + (self.omega_cutoff[2][2]**3)*(self.u[2][0]) )
-
-
-          self.y_dot[0][0] = self.y_dot[0][0] + dt*(self.y_ddot[0][0])
-          self.y_dot[1][0] = self.y_dot[1][0] + dt*(self.y_ddot[1][0])
-          self.y_dot[2][0] = self.y_dot[2][0] + dt*(self.y_ddot[2][0])
-
-          self.y[0][0] = self.y[0][0] + dt*(self.y_dot[0][0])
-          self.y[1][0] = self.y[1][0] + dt*(self.y_dot[1][0])
-          self.y[2][0] = self.y[2][0] + dt*(self.y_dot[2][0])
+            self.y_ddot[2][0] = self.y_ddot[2][0] + dt*(-3*self.omega_cutoff[2][2]*(self.y_ddot[2][0]) - 3*(self.omega_cutoff[2][2]**2)*(self.y_dot[2][0]) - (self.omega_cutoff[2][2]**3)*(self.y[2][0]) + 3*(self.omega_cutoff[2][2]**2)*(self.u_dot[2][0]) + (self.omega_cutoff[2][2]**3)*(self.u[2][0]) )
 
 
+            self.y_dot[0][0] = self.y_dot[0][0] + dt*(self.y_ddot[0][0])
+            self.y_dot[1][0] = self.y_dot[1][0] + dt*(self.y_ddot[1][0])
+            self.y_dot[2][0] = self.y_dot[2][0] + dt*(self.y_ddot[2][0])
 
-
-
-        
+            self.y[0][0] = self.y[0][0] + dt*(self.y_dot[0][0])
+            self.y[1][0] = self.y[1][0] + dt*(self.y_dot[1][0])
+            self.y[2][0] = self.y[2][0] + dt*(self.y_dot[2][0])
         
 ####	Third Order Low Pass Filter y = C(s)*u
 ##          # low pass filter C(s) = (3*omega_cutoff^2*s + omega_cutoff^3)/(s^3 + 3*omega_cutoff*s^2 + 3*omega_cutoff^2*s + omega_cutoff^3)
@@ -1300,8 +1296,12 @@ class DroneController(DroneVideoDisplay):
 #          self.y_dot = self.y_dot + dt*(self.y_ddot)
 #          self.y = self.y + dt*(self.y_dot)
         
-          # low filter output is L1 desired velocity
-          self.x_L1_des = self.y
+            # low filter output is L1 desired velocity
+            self.x_L1_des = self.y
+
+          else:
+            print "\n !!! NO FILTER TYPE !!! reverting to 1st order LPF"
+            self.x_L1_des = self.x_L1_des + dt*self.omega_cutoff.dot( -self.x_L1_des + track_error )
           
 
           ### reference model -- M(s) = m/(s+m) -- x_ref = M(s)(u + sigma_hat) ###
