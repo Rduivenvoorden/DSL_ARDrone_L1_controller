@@ -350,29 +350,39 @@ class DroneController(DroneVideoDisplay):
         ###### NOTE: TYPE 2: REAL SYSTEM PARAMETERS ARE HERE ######
         print "\n Running on Real System \n"
         print "L1 x-y-z translational velocity controller with projection based adaptation"
-
-        ########## 2016 - 06 - 29 stable z (DO NOT TOUCH z PARAMS) AR.Drone 2_40
         
-        ### L1 low pass filter cutoff frequency
-        omxy = 1.55
-        self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.45] ) ) # NOTE: EXPERIMENTS
-
-        ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
-        mxy = -2.2
-#        self.A_m = np.diag(np.array([-15.0, -15.0, -25.0])) # FIRST ORDER Low Pass Filter
-        self.A_m = np.diag(np.array([mxy, mxy, -1.65])) # THIRD ORDER Low Pass Filter
+        if self.LPF_type ==3:
+          ########## 2016 - 06 - 29 stable z (DO NOT TOUCH z PARAMS) AR.Drone 2_40
+          
+          ### L1 low pass filter cutoff frequency
+          omxy = 1.55
+          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.45] ) ) # NOTE: EXPERIMENTS
+          
+          ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
+          mxy = -2.2
+#          self.A_m = np.diag(np.array([-15.0, -15.0, -25.0])) # FIRST ORDER Low Pass Filter
+          self.A_m = np.diag(np.array([mxy, mxy, -1.65])) # THIRD ORDER Low Pass Filter
+        
+        else:
+          ### L1 low pass filter cutoff frequency
+          omxy = 1.55
+          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.35] ) )
+          
+          ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
+          mxy = -2.77
+          self.A_m = np.diag(np.array([mxy, mxy, -1.9])) # FIRST ORDER Low Pass Filter
 
         ### Proportional position controller
         pxy = 0.5
-        self.Pgain = np.array([[pxy],[pxy],[0.35]]) # THIRD ORDER
+        self.Pgain = np.array([[pxy],[pxy],[0.35]])
 
       self.B_m = -self.A_m
     
       ### Create CSV file to keep a record of the parameters that produced the recorded results
       with open(self.save_dir + self.current_time + 'l1_experiment_info.csv','ab') as l1_info:
         writer = csv.writer(l1_info)
-        writer.writerow(['L1_type', 'omega_cx', 'omega_cy', 'omega_cz', 'm_x', 'm_y', 'm_z', 'Pgain_x', 'Pgain_y', 'Pgain_z', 'N/A', 'N/A', 'N/A', 'Gamma'])
-        writer.writerow(np.array( [self.L1_type, self.omega_cutoff[0][0], self.omega_cutoff[1][1], self.omega_cutoff[2][2], self.A_m[0][0], self.A_m[1][1], self.A_m[2][2], self.Pgain[0][0], self.Pgain[1][0], self.Pgain[2][0], 0,0,0, self.Gamma ] ))
+        writer.writerow(['L1_type', 'omega_cx', 'omega_cy', 'omega_cz', 'm_x', 'm_y', 'm_z', 'Pgain_x', 'Pgain_y', 'Pgain_z', 'N/A', 'N/A', 'N/A', 'Gamma', 'LPF_type'])
+        writer.writerow(np.array( [self.L1_type, self.omega_cutoff[0][0], self.omega_cutoff[1][1], self.omega_cutoff[2][2], self.A_m[0][0], self.A_m[1][1], self.A_m[2][2], self.Pgain[0][0], self.Pgain[1][0], self.Pgain[2][0], 0,0,0, self.Gamma, self.LPF_type ] ))
 
 
     elif self.L1_type == 3:
@@ -1171,7 +1181,6 @@ class DroneController(DroneVideoDisplay):
 
         # First check whether drone is in flying mode
         # Only use L1 when flying: 2 - landed, 6 - taking off, 3 - flying
-#        if (self.status.drone_state != 3): #and (self.status.drone_state !=7):  
         if (self.status.drone_state != 3) or duration < self.delay_until_L1_start:
 
           self.x_L1_des = np.reshape(des.x_dot, (3,-1))
@@ -1258,9 +1267,6 @@ class DroneController(DroneVideoDisplay):
             ###	First Order Low Pass Filter
             # low pass filter C(s) = omega_cutoff / (s + omega_cutoff) ### NOTE: decoupled directions
             self.x_L1_des = self.x_L1_des + dt*self.omega_cutoff.dot( -self.x_L1_des + track_error )
-##          self.x_L1_des[0][0] = self.x_L1_des[0][0] + dt*1.5*( -self.x_L1_des[0][0] + track_error[0][0] )
-##          self.x_L1_des[1][0] = self.x_L1_des[1][0] + dt*1.5*( -self.x_L1_des[1][0] + track_error[1][0] )
-##          self.x_L1_des[2][0] = self.x_L1_des[2][0] + dt*2.0*( -self.x_L1_des[2][0] + track_error[2][0] )
 
           elif self.LPF_type == 3:
             #### Third Order Low Pass Filter y = C(s)*u
@@ -1306,32 +1312,20 @@ class DroneController(DroneVideoDisplay):
 
           ### reference model -- M(s) = m/(s+m) -- x_ref = M(s)(u + sigma_hat) ###
           self.x_ref = self.x_ref + dt*self.B_m.dot( -self.x_ref + self.x_L1_des + self.sigma_hat )
-#          self.x_ref[0][0] = self.x_ref[0][0] + dt*15.0*( -self.x_ref[0][0] + self.x_L1_des[0][0] + self.sigma_hat[0][0] )
-#          self.x_ref[1][0] = self.x_ref[1][0] + dt*15.0*( -self.x_ref[1][0] + self.x_L1_des[1][0] + self.sigma_hat[1][0] )
-#          self.x_ref[2][0] = self.x_ref[2][0] + dt*20.0*( -self.x_ref[2][0] + self.x_L1_des[2][0] + self.sigma_hat[2][0] )
-          #self.x_dot_ref = self.x_dot_ref + dt*self.m*(-self.x_dot_ref + self.x_dot_L1_des + self.sigma_hat)
+
         
-          # append to csv file
+          ### Log Data to csv file
           with open(self.save_dir + self.current_time + 'l1_ref_output.csv','ab') as ref_model:
             writer = csv.writer(ref_model)
-            # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3)
-            #writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.desired_vel[0][0], self.desired_vel[1][0], self.desired_vel[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2]]))
             # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3), desired_acc(1:3), rpy(1:3)
             writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.desired_vel[0][0], self.desired_vel[1][0], self.desired_vel[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], 0,0,0, curr.rpy[0], curr.rpy[1], curr.rpy[2]]))
       
-      ###########################################################################
+        ###########################################################################
 
         # Z-velocity command m/sec)
-        # z_velocity_out =  ((2.0*self.zeta/self.tau_z) * (des.x_dot[2] - curr.x_dot[2]) + (1.0/(self.tau_z**2))*(des.x[2] - curr.x[2]) )
-        #z_velocity_out = (1.0/(self.tau_z**2))*(self.x_L1_des[2][0] - curr.x[2]) ### NOTE: x_L1_des z-position
-        #z_velocity_out = (1.0/(self.tau_z**2))*(des.x[2] - curr.x[2])
         z_velocity_out = self.x_L1_des[2][0]
-  
-    
+        
         # calculate the desired acceleration in x and y (global coordinates, [m/s^2] )
-        #ax = (2.0*self.zeta/self.tau_x)*1.0*(self.x_L1_des[0][0] - curr.x_dot[0]) ### NOTE: x_L1_des x-velocity
-        #ay = (2.0*self.zeta/self.tau_x)*1.0*(self.x_L1_des[1][0] - curr.x_dot[1]) ### NOTE: x_L1_des y-velocity
-        #ay = (2.0*self.zeta/self.tau_x)*(des.x_dot[1] - curr.x_dot[1]) + (1.0/(self.tau_x*self.tau_x))*(des.x[1]-curr.x[1])
         ax = (2.0*self.zeta/self.tau_x)*(self.x_L1_des[0][0] - curr.x_dot[0]) + (1.0/(self.tau_x*self.tau_x))*(des.x[0]-curr.x[0]) ### NOTE: x_L1_des x-position
         ay = (2.0*self.zeta/self.tau_x)*(self.x_L1_des[1][0] - curr.x_dot[1]) + (1.0/(self.tau_x*self.tau_x))*(des.x[0]-curr.x[1]) ### NOTE: x_L1_des y-position
         
