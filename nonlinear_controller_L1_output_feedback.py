@@ -134,12 +134,6 @@ class Status:
 
 #####################   Main Controller Code    ################################
 
-# class DroneController(DroneVideoDisplay):
-# 
-#  
-#   def __init__(self):
-#     super(DroneController,self).__init__)
-
 class DroneController(DroneVideoDisplay):
 
   # Member Variables
@@ -215,7 +209,9 @@ class DroneController(DroneVideoDisplay):
     cmd_rate       = rospy.get_param('cmd_rate', 70);         # command rate (Hz)
     self.COMMAND_PERIOD = 1.0/cmd_rate
 
+    ###########################################################################
     # Design Parameters
+    ###########################################################################
     print "Getting parameters" 
     self.tau_x = rospy.get_param("~tau_x", 0.7)
     self.tau_y = rospy.get_param("~tau_y", 0.7)
@@ -225,26 +221,36 @@ class DroneController(DroneVideoDisplay):
     self.L1_type = rospy.get_param("~L1_type",1)
     self.simulation_flag = rospy.get_param("~simulation_flag", 0)
 
-    print self.L1_type
+    print "L1 type: ", self.L1_type
 
-
+    ###########################################################################
+    # Logging and Controller Testing
+    ###########################################################################
     self.symmetry_check = 0 # NOTE: TEST X-Y SYMMETRY if symmetry_check = 1
     self.angles_log = 0 # if 1, l1_angles.csv containing rpy angles is created and logged
 
     ###########################################################################
-    # Add L1 Takeover Delay
+    # Controller Safety Features
     ###########################################################################
+
+    # L1 Takeover Delay -- ensure nonlinear controller achieved desirable IC
+    self.enable_L1_delay = True
     self.start_flight_timer = False
     self.print_L1_status = False
     self.print_L1_status_flag = True
-    #self.delay_until_L1_start = 0.0
     self.start_time = 0.0 #initialization, value is overwritten at takeoff
-    self.delay_until_L1_start = 15.0 #sec
+    self.delay_until_L1_start = 10.0 #sec
+
+    # Nonlinear Controller Takeover -- when L1 response has large error or oscillations
+    self.enable_DSL_takeover = False
+
+    # L1 reinitialization -- resets all L1 params as if L1 has just taken over
+    self.enable_L1_reinit = False
 
     ###########################################################################
     # Artificial Output Disturbance
     ###########################################################################
-    self.change_pitch = False
+    self.change_output = False
     self.change_output_factor = 0.5
 
     '''
@@ -401,7 +407,6 @@ class DroneController(DroneVideoDisplay):
 
       ### L1 adaptive estimation ###
       self.Gamma = 80.0 # L1 adaptive gain (80 is good for z-direction) # third order
-#      self.Gamma = np.array([[100.0], [100.0], [80.0]]) # L1 adaptive gain # low-level third order
     
       ### Projection Operator - convex set ###
       self.sigma_hat_max = 30.0 # maximum absolute nominal value of sigma_hat
@@ -409,7 +414,6 @@ class DroneController(DroneVideoDisplay):
 
       ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
       # M_i(s) = m_i/(s+m_i), i = x,y,z
-      # A_m = diag(-mx -my -mz), B_m = diag(mx my mz)
       self.A_m = np.diag(np.array([-10.0, -10.0, -2.0])) # L1 low level - third order C
       self.B_m = -self.A_m
 
@@ -473,44 +477,18 @@ class DroneController(DroneVideoDisplay):
         
         else:
           ### L1 low pass filter cutoff frequency FIRST ORDER
-          omxy = 0.9
-          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.5] ) ) # NOTE: SIMULATION
+          omxy = 1.5
+          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.45] ) ) # NOTE: SIMULATION
 
           ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
-          mxy = -1.9
+          mxy = -2.9
           self.A_m = np.diag(np.array([mxy, mxy, -2.0])) # FIRST ORDER Low Pass Filter
 
           self.P_L1_correction = 1.0#(self.tau_x**2)
-          self.D_L1_correction = 0.8#self.tau_x/(2.0*self.zeta)
+          self.D_L1_correction = 1.0#self.tau_x/(2.0*self.zeta)
           self.P_z_L1_correction = 1.05#(self.tau_z**2)
-
-
-
-        #self.P_L1_correction = 0.3
-        #self.D_L1_correction = 0.1
-        #self.P_z_L1_correction = 0.99
         
       self.B_m = -self.A_m
-
-#      print "L1 augmented standard nonlinear controller with projection based adaptation"
-#
-#      ### L1 low pass filter cutoff frequency
-#      #self.omega_cutoff = np.diag( np.array( [8.0, 8.0, 6.75] ) ) # low-level third order
-#      self.omega_cutoff = np.diag( np.array( [2.0, 2.0, 2.0] ) ) # EXPERIMENTS
-#
-#      ### L1 adaptive estimation ###
-#      self.Gamma = 800.0 # L1 adaptive gain (80 is good for z-direction) # third order
-##      self.Gamma = np.array([[100.0], [100.0], [80.0]]) # L1 adaptive gain # low-level third order
-#    
-#      ### Projection Operator - convex set ###
-#      self.sigma_hat_max = 30.0 # maximum absolute nominal value of sigma_hat
-#      self.epsilon_sigma = 0.1 # tolerance on maximum sigma_hat
-#
-#      ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
-#      # M_i(s) = m_i/(s+m_i), i = x,y,z
-#      # A_m = diag(-mx -my -mz), B_m = diag(mx my mz)
-#      self.A_m = np.diag(np.array([-5.0, -5.0, -2.0])) # L1 low level - third order C
-#      self.B_m = -self.A_m
 
       ### Create CSV file to keep a record of the parameters that produced the recorded results
       with open(self.save_dir + self.current_time + 'l1_experiment_info.csv','ab') as l1_info:
@@ -573,7 +551,11 @@ class DroneController(DroneVideoDisplay):
     # calculate time since last determineCommand call for integration purposes
     now = rospy.get_rostime()
     dt = now.secs-self.oldtime.secs + (now.nsecs-self.oldtime.nsecs)*0.000000001
-
+    
+    if dt < 0:
+      dt = 0.001
+      print "####################      dt time is negative      ####################"
+    
     if dt == 0 or dt > 0.1:
       #print 'now: ', now.secs, ' ', now.nsecs*0.000000001, '\n', 'old: ', self.oldtime.secs, ' ', self.oldtime.nsecs*0.000000001, '\n dt: ', dt
       if dt>0.1:
@@ -919,7 +901,7 @@ class DroneController(DroneVideoDisplay):
             projection_result = -y_tilde + (1/np.linalg.norm(grad_f))*(grad_f)*grad_f.T.dot(y_tilde)[0][0]*f
       
         # multiply by adaptive Gain and integrate 
-        sigma = self.sigma_hat + dt*(np.array([[1],[1],[0.1]])*self.Gamma*projection_result)
+        sigma = self.sigma_hat + dt*(np.array([[1],[1],[1]])*self.Gamma*projection_result)
         
         # hard clamp in case of projection issues
         sigma_x = self.clamp(sigma[0][0], self.sigma_hat_max*(1+self.epsilon_sigma) )
@@ -1476,35 +1458,17 @@ class DroneController(DroneVideoDisplay):
   def SendCommand(self, roll, pitch, yaw_rate, z_dot):
     
     # add artificial pitch to perturb system
-    if self.change_pitch:
+    if self.change_output:
       pitch = pitch*self.change_output_factor
       roll = roll*self.change_output_factor
       z_dot = z_dot*self.change_output_factor
 
 
-    if not(math.isnan(pitch)):
-      self.command.twist.linear.x = pitch
-    else:
-      print "**********************pitch is NaN****************************\n"
-      self.command.twist.linear.x = 0
+    self.command.twist.linear.x = pitch
+    self.command.twist.linear.y = roll
+    self.command.twist.linear.z = z_dot
+    self.command.twist.angular.z = yaw_rate
 
-    if not(math.isnan(roll)):
-      self.command.twist.linear.y = roll
-    else:
-      print "**********************roll is NaN**********************\n"
-      self.command.twist.linear.y = 0
-
-    if not(math.isnan(z_dot)):
-      self.command.twist.linear.z = z_dot
-    else:
-      print "**********************z_dot is NaN**********************\n"
-      self.command.twist.linear.z = 0
-
-    if not(math.isnan(yaw_rate)):
-      self.command.twist.angular.z = yaw_rate
-    else:
-      print "**********************yaw_rate is NaN**********************\n"
-      self.command.twist.angular.z = 0
 
     # make sure the drone is not taking off
     if (self.status.drone_state != DroneStatus.TakingOff): 
@@ -1643,7 +1607,7 @@ class DroneController(DroneVideoDisplay):
         self.sendStartExp()
       elif key == KeyMapping.ChangePitchOut:
         print "Changed roll-pitch-zdot output by a factor of ", self.change_output_factor
-        self.change_pitch = True
+        self.change_output = True
       else:
         # Now we handle moving, notice that this section is the opposite (+=) of the keyrelease section
         if key == KeyMapping.YawLeft:
