@@ -91,6 +91,12 @@ class KeyMapping(object):
   ReadFromFile     = QtCore.Qt.Key.Key_B #Also mine
   
   ChangePitchOut     = QtCore.Qt.Key.Key_M
+  L1reinit           = QtCore.Qt.Key.Key_0
+
+  # Unused Letter Keys
+  #QtCore.Qt.Key.Key_D
+  #QtCore.Qt.Key.Key_L
+  #QtCore.Qt.Key.Key_N
 
 
 #####################   Useful Structures for the Controller ###################
@@ -235,9 +241,9 @@ class DroneController(DroneVideoDisplay):
 
     # L1 Takeover Delay -- ensure nonlinear controller achieved desirable IC
     self.enable_L1_delay = True
-    self.start_flight_timer = False
-    self.print_L1_status = False
-    self.print_L1_status_flag = True
+    self.start_flight_timer = False # flag set to True at takeoff
+    self.print_L1_status = False # used for printing L1 takeover once
+    self.print_L1_status_flag = True # used for printin L1 takeover once
     self.start_time = 0.0 #initialization, value is overwritten at takeoff
     self.delay_until_L1_start = 10.0 #sec
 
@@ -245,7 +251,7 @@ class DroneController(DroneVideoDisplay):
     self.enable_DSL_takeover = False
 
     # L1 reinitialization -- resets all L1 params as if L1 has just taken over
-    self.enable_L1_reinit = False
+    self.enable_L1_reinit = True
 
     ###########################################################################
     # Artificial Output Disturbance
@@ -328,8 +334,6 @@ class DroneController(DroneVideoDisplay):
       ### Projection Operator - convex set ###
       self.sigma_hat_max = 200.0 # maximum absolute nominal value of sigma_hat
       self.epsilon_sigma = 0.1 # tolerance on maximum sigma_hat
-
-      self.delay_until_L1_start = 10.0 #sec
 
       self.LPF_type = 1
 
@@ -1452,6 +1456,45 @@ class DroneController(DroneVideoDisplay):
         
         self.SendCommand(roll_out, pitch_out, yaw_velocity_out, z_velocity_out)
 
+
+###############################################################################
+  
+  # Reinitialize L1 used vectors
+  def L1_reinit(self):
+
+    print "\n!! Reinitializing L1 Adaptive Controller !!\n"
+
+    ### Initialize zero vectors 
+    self.x_L1_des = np.array([[0.0],[0.0],[0.0]])
+
+    # 3rd order filter initialization
+    self.u_dot = np.array([[0.0],[0.0],[0.0]])
+    self.u = np.array([[0.0],[0.0],[0.0]])
+    self.y_ddot = np.array([[0.0],[0.0],[0.0]])
+    self.y_dot = np.array([[0.0],[0.0],[0.0]])
+    self.y = np.array([[0.0],[0.0],[0.0]])
+
+    self.oldtime = rospy.get_rostime() # for integration
+
+
+    self.sigma_hat = np.array([[0.0],[0.0],[0.0]]) # adaptive estimate
+
+    self.desired_vel = np.array([[0.0],[0.0],[0.0]])
+
+    self.x_ref = np.array([[0.0],[0.0],[0.0]]) # initialize reference x position
+
+    # errors (primarily for derivative controller)
+    self.old_pos_error = np.array([[0.0],[0.0],[0.0]])
+    self.old_err = np.array([[0.0],[0.0],[0.0]])
+    self.old_rp_error = np.array([[0.0],[0.0]])
+
+
+###############################################################################
+
+
+
+
+
   #****************************************************************************
  
   # Publish Commands to the drone if we are not in hover mode.
@@ -1605,9 +1648,18 @@ class DroneController(DroneVideoDisplay):
       elif key == KeyMapping.StartExp: # send empty messages on /function2 topic 
         print "Starting experiment :)-" 
         self.sendStartExp()
+
       elif key == KeyMapping.ChangePitchOut:
         print "Changed roll-pitch-zdot output by a factor of ", self.change_output_factor
         self.change_output = True
+
+      elif key == KeyMapping.L1reinit:
+        if self.enable_L1_reinit:
+          print "Manual L1 reinit ... "
+          self.L1_reinit()
+        else:
+          print "L1 reinit is disabled"
+
       else:
         # Now we handle moving, notice that this section is the opposite (+=) of the keyrelease section
         if key == KeyMapping.YawLeft:
