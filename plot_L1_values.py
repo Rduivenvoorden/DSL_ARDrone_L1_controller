@@ -4,8 +4,9 @@ import time
 import sys
 import csv
 
-
-interactive = 1
+show_plots = False
+interactive = False
+save_imgs = True
 
 # open the file from input argument from user
 print "\nOpening the following: ", sys.argv[1]#[26:45]
@@ -14,6 +15,7 @@ file_input = sys.argv[1]
 data = np.genfromtxt(file_input, delimiter = ',')
 
 info_input = file_input[:45] + '_l1_experiment_info.csv'
+
 
 ###############################################################################
 
@@ -86,6 +88,9 @@ x_des = data[:,20:23] ### input
 desired_acc = data[:,23:26] ### only for L1 type 3
 rpy = data[:,26:29] ### output
 
+if L1_type == 4:
+  nav_rp = data[:,29:31]
+
 #ax = data[:,29]
 #ay = data[:,30]
 #
@@ -94,10 +99,18 @@ rpy = data[:,26:29] ### output
 
 ###############################################################################
 
+if save_imgs:
+  save_dir = '/home/dsl5/Desktop/'
+  img_extension = '.eps'
+  save_prefix = save_dir + file_input[26:45] + '_type' + str(int(float(experiment_info[0])))
+
+
+
 if not(interactive):
   plt.ion()
 
-plt.figure(1)
+plt.figure(1, figsize=(9,6))
+#plt.figure(figsize=(4,3))
 plt.plot(exp_time,x_des[:,0])
 plt.plot(exp_time,x[:,0])
 plt.xlabel('Time (sec)')
@@ -106,10 +119,13 @@ plt.legend(['Desired x', 'Actual x'])
 #plt.title('')
 plt.axis([plt.axis()[0], plt.axis()[1], -2.0, 2.0])
 plt.grid(True)
+
+if save_imgs:
+  plt.savefig(save_prefix + '_xtracking' + img_extension)
 #plt.show()
 
 
-plt.figure(2)
+plt.figure(2, figsize=(9,6))
 plt.plot(exp_time,x_des[:,1])
 plt.plot(exp_time,x[:,1])
 plt.xlabel('Time (sec)')
@@ -118,10 +134,13 @@ plt.legend(['Desired y', 'Actual y'])
 #plt.title('')
 plt.axis([plt.axis()[0], plt.axis()[1], -2.0, 2.0])
 plt.grid(True)
+
+if save_imgs:
+  plt.savefig(save_prefix + '_ytracking' + img_extension)
 #plt.show()
 
 
-plt.figure(3)
+plt.figure(3, figsize=(9,6))
 plt.plot(exp_time,x_des[:,2])
 plt.plot(exp_time,x[:,2])
 plt.xlabel('Time (sec)')
@@ -130,6 +149,9 @@ plt.legend(['Desired z', 'Actual z'])
 #plt.title('')
 plt.axis([plt.axis()[0], plt.axis()[1], 0, 2.5])
 plt.grid(True)
+
+if save_imgs:
+  plt.savefig(save_prefix + '_ztracking' + img_extension)
 #plt.show()
 
 ###############################################################################
@@ -174,7 +196,7 @@ y_ddot = 0
 y_dot = 0
 y = 0
 
-omega_cutoff = 1.75
+omega_cutoff = 1.55
 
 old_time = 0
 
@@ -207,6 +229,8 @@ plt.plot(exp_time, x_L1_des[:,0])
 #plt.plot(t,ay)
 #plt.plot(t,ax_b)
 #plt.plot(t,ay_b)
+plt.legend(['LPF Input','LPF output off-line','LPF output on-line'])
+plt.axis([40.0, 110.0, plt.axis()[2], plt.axis()[3]])
 plt.grid(True)
 
 ###
@@ -215,7 +239,7 @@ plt.grid(True)
 
 
 
-plt.figure(5)
+plt.figure(5, figsize=(9,6))
 if L1_type == 1:
   print L1_type
 
@@ -226,14 +250,14 @@ elif L1_type == 2:
   plt.plot(exp_time, L1_input[:,0] - sigma_hat[:,0])
   plt.plot(exp_time, x_ref[:,0])
   plt.xlabel('Time (sec)')
-  plt.ylabel('Velocity (m)')
+  plt.ylabel('Velocity (m/s)')
   plt.legend(['x-dot','x-L1','x-dot-des','x-dot-des -- sigma-hat','x-dot-ref'])
 
 elif L1_type == 3:
   plt.legend(['x-dot','x-dot-L1','x-dot-des','x-dot-des -- sigma-hat'])
 
 elif L1_type == 4:
-  plt.plot(exp_time, rpy[:,0]*180/np.pi)
+  plt.plot(exp_time, nav_rp[:,0]*180/np.pi)
   plt.plot(exp_time, x_L1_des[:,0]*180/np.pi)
   plt.plot(exp_time, L1_input[:,0]*180/np.pi)
   plt.plot(exp_time, L1_input[:,0]*180/np.pi - sigma_hat[:,0]*180/np.pi)
@@ -247,10 +271,14 @@ elif L1_type == 4:
 #plt.title('')
 #plt.axis([plt.axis()[0], plt.axis()[1], -2.0, 2.0])
 plt.grid(True)
+
+if save_imgs:
+  plt.axis([plt.axis()[0], plt.axis()[1], -2.5, 2.5])
+  plt.savefig(save_prefix + '_xL1signals' + img_extension)
 #plt.show()
 
 
-plt.figure(6)
+plt.figure(6, figsize=(9,6))
 if L1_type == 1:
   print L1_type
 
@@ -261,14 +289,14 @@ elif L1_type == 2:
   plt.plot(exp_time, L1_input[:,1] - sigma_hat[:,1])
   plt.plot(exp_time,x_ref[:,1])
   plt.xlabel('Time (sec)')
-  plt.ylabel('Velocity (m)')
+  plt.ylabel('Velocity (m/s)')
   plt.legend(['y-dot','y-L1','y-dot-des','y-dot-des -- sigma-hat','y-dot-ref'])
 
 elif L1_type == 3:
   plt.legend(['y-dot','y-dot-L1','y-dot-des','y-dot-des -- sigma-hat'])
 
 elif L1_type == 4:
-  plt.plot(exp_time, rpy[:,1]*180/np.pi)
+  plt.plot(exp_time, nav_rp[:,1]*180/np.pi)
   #plt.plot(exp_time, x_ref[:,1]*180/np.pi)
   plt.plot(exp_time, x_L1_des[:,1]*180/np.pi)
   plt.plot(exp_time, L1_input[:,1]*180/np.pi)
@@ -283,10 +311,14 @@ elif L1_type == 4:
 #plt.title('')
 #plt.axis([plt.axis()[0], plt.axis()[1], -2.0, 2.0])
 plt.grid(True)
+
+if save_imgs:
+  plt.axis([plt.axis()[0], plt.axis()[1], -2.5, 2.5])
+  plt.savefig(save_prefix + '_yL1signals' + img_extension)
 #plt.show()
 
 
-plt.figure(7)
+plt.figure(7, figsize=(9,6))
 plt.plot(exp_time, x_dot[:,2])
 plt.plot(exp_time, x_L1_des[:,2])
 plt.plot(exp_time, L1_input[:,2])
@@ -299,13 +331,18 @@ plt.legend(['z-dot','z-dot-L1','z-dot-des','z-dot-des -- sigma-hat'])
 #plt.axis([plt.axis()[0], plt.axis()[1], -1.0, 1.0])
 plt.grid(True)
 
-if not(interactive):
-  plt.figure(8)
-  plt.close(8)
-  time.sleep(30)
+if save_imgs:
+  plt.axis([plt.axis()[0], plt.axis()[1], -2.5, 2.5])
+  plt.savefig(save_prefix + '_zL1signals' + img_extension)
 
-else:
-  plt.show()
+if show_plots:
+  if not(interactive):
+    plt.figure(8)
+    plt.close(8)
+    time.sleep(30)
+  
+  else:
+    plt.show()
 
 ###############################################################################
 
