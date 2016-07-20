@@ -269,7 +269,7 @@ class DroneController(DroneVideoDisplay):
     self.enable_DSL_takeover = False
 
     # L1 reinitialization -- resets all L1 params as if L1 has just taken over
-    self.enable_L1_reinit = True
+    self.enable_L1_reinit = False
 
     ###########################################################################
     # Artificial Output Disturbance
@@ -301,7 +301,7 @@ class DroneController(DroneVideoDisplay):
     self.y_dot = np.array([[0.0],[0.0],[0.0]])
     self.y = np.array([[0.0],[0.0],[0.0]])
 
-    self.oldtime = rospy.get_rostime() # for integration
+    self.oldtime = rospy.get_time() # for integration
 
 
     self.sigma_hat = np.array([[0.0],[0.0],[0.0]]) # adaptive estimate
@@ -315,6 +315,7 @@ class DroneController(DroneVideoDisplay):
     self.old_err = np.array([[0.0],[0.0],[0.0]])
     self.old_rp_error = np.array([[0.0],[0.0]])
 
+    self.determineCommands_busy = False
 
     ### Now initialize L1 parameters based on L1 architecture
     if self.L1_type == 1:
@@ -354,7 +355,7 @@ class DroneController(DroneVideoDisplay):
       self.sigma_hat_max = 200.0 # maximum absolute nominal value of sigma_hat
       self.epsilon_sigma = 0.1 # tolerance on maximum sigma_hat
 
-      self.LPF_type = 1
+      self.LPF_type = 3
 
       # Check if running in simulation or on real system
       if self.simulation_flag:
@@ -383,17 +384,34 @@ class DroneController(DroneVideoDisplay):
         print "L1 x-y-z translational velocity controller with projection based adaptation"
         
         if self.LPF_type ==3:
-          ########## 2016 - 06 - 29 stable z (DO NOT TOUCH z PARAMS) AR.Drone 2_40
-          
+
+          # omxy >>1.0<<, >>1.1<<, >>1.2<<, 1.3, >>1.4<<, >>1.5<<, >>1.6<<, >>1.7<<, >>1.8<<, >>1.9<<, >>2.0<<
+          # mxy -1.5, -1.8, -2.1, -2.4, -2.7, -3.0, -3.3, -3.6, -3.9, -4.2
+
           ### L1 low pass filter cutoff frequency
-          omxy = 1.55
+          omxy = 1.5
           self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.45] ) ) # NOTE: EXPERIMENTS
           
+          print "\nOmega_xy = ", omxy
+
           ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
-          mxy = -2.2
-#          self.A_m = np.diag(np.array([-15.0, -15.0, -25.0])) # FIRST ORDER Low Pass Filter
+          mxy = -3.3
           self.A_m = np.diag(np.array([mxy, mxy, -1.65])) # THIRD ORDER Low Pass Filter
-        
+
+          print "M_xy", mxy, "\n"
+
+
+#          ########## 2016 - 06 - 29 stable z (DO NOT TOUCH z PARAMS) AR.Drone 2_40
+#          
+#          ### L1 low pass filter cutoff frequency
+#          omxy = 1.55
+#          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.45] ) ) # NOTE: EXPERIMENTS
+#          
+#          ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
+#          mxy = -2.2
+##          self.A_m = np.diag(np.array([-15.0, -15.0, -25.0])) # FIRST ORDER Low Pass Filter
+#          self.A_m = np.diag(np.array([mxy, mxy, -1.65])) # THIRD ORDER Low Pass Filter
+#        
         else:
           ### L1 low pass filter cutoff frequency
           omxy = 1.6
@@ -565,6 +583,13 @@ class DroneController(DroneVideoDisplay):
   #*****************************************************************************
   def determineCommands(self):
 
+    if self.determineCommands_busy:
+      print "###################     determineCommands is busy  #########################"
+      return
+    else:
+      self.determineCommands_busy = True
+    
+    start_time = rospy.get_time()
     # Save variables so they are not over-written in mid-calculation
     des  = State.fromState(self.desired_state)
     curr = State.fromState(self.current_state)
@@ -573,7 +598,11 @@ class DroneController(DroneVideoDisplay):
     
     # calculate time since last determineCommand call for integration purposes
     now = rospy.get_rostime()
-    self.dt = now.secs-self.oldtime.secs + (now.nsecs-self.oldtime.nsecs)*0.000000001
+    now1 = rospy.get_time()
+    self.dt = now1 - self.oldtime
+    self.oldtime = now1
+
+#    self.dt = now.secs-self.oldtime.secs + (now.nsecs-self.oldtime.nsecs)*0.000000001
     
     # check to make sure 
     if self.dt <= 0 or self.dt > 0.1:
@@ -587,7 +616,7 @@ class DroneController(DroneVideoDisplay):
       self.dt = 0.001
 
     # store old time for next call
-    self.oldtime = now
+#    self.oldtime = now
     
     '''
     ########################################################################
@@ -1357,7 +1386,11 @@ class DroneController(DroneVideoDisplay):
             writer.writerow(np.array([roll_out, pitch_out, yaw_velocity_out, z_velocity_out, curr.rpy[0], curr.rpy[1], curr.x_dot[2], now.secs, now.nsecs]))
         
         self.SendCommand(roll_out, pitch_out, yaw_velocity_out, z_velocity_out)
+      
+      #if rospy.get_time() - start_time > 0.0045:
+      #  print rospy.get_time() - start_time
 
+      self.determineCommands_busy = False
 
 ###############################################################################
   
