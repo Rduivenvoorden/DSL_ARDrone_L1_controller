@@ -20,7 +20,7 @@ compare_LPF_type = 1
 ### Evaluate the cost function given the log file filename
 def determineXYZCost(filename):
   
-  print filename
+#  print filename
 
   ### Open filename ###
   data = np.genfromtxt(filename, delimiter = ',')
@@ -48,6 +48,7 @@ def determineXYZCost(filename):
   if L1_type == 4:
     nav_rp = data[:,29:31]
 
+
   ### Determine at which indices the desired reference trajectory changes (assuming step inputs)
   ref_signal_changes = np.zeros(50)
   old_xdes = x_des[0][0]
@@ -62,10 +63,15 @@ def determineXYZCost(filename):
 
     # end if
   # end for
+
+  # Truncate the vector containing indices of changes in reference signal
   ref_signal_changes = ref_signal_changes[0:des_counter]
 
+  # Return -1 if there is insufficient data in the log file to compute the cost function accurately
   if max(ref_signal_changes.shape) <=2:
     return -1
+
+  print filename
 
   ### Save the desired position and the actual position for the second and subsequent changes until the last change (for all directions)
   err_calc_xdes = x_des[ int(ref_signal_changes[1]):int(ref_signal_changes[-1]) , :]
@@ -84,7 +90,7 @@ def determineXYZCost(filename):
   uy_metric = np.mean(x_L1_des[:,1]**2)
   uz_metric = np.mean(x_L1_des[:,2]**2)
 
-  cost = np.sqrt(x_error_metric + y_error_metric + z_error_metric) + np.sqrt(ux_metric + uy_metric + uz_metric)
+  cost = np.mean( 3.0*np.sqrt(x_track_error**2 + y_track_error**2 + z_track_error**2) + np.sqrt(ux_metric**2 + uy_metric**2 + uz_metric**2) )
 
   #print "\nCost: ", cost, "\n"
   return cost
@@ -96,16 +102,10 @@ def determineXYZCost(filename):
 # open the file from input argument from user
 print "\nOpening the following: ", sys.argv[1]#[26:45]
 
-file_input = sys.argv[1]
-#data = np.genfromtxt(file_input, delimiter = ',')
-
-info_input = file_input[:45] + '_l1_experiment_info.csv'
-
 directory = sys.argv[1][:26]
 
-
+# Initialize the cost function value matrix
 CostFunction = np.zeros((500,3))
-
 
 ### Loop through all files in the directory
 logfile_counter = 0
@@ -127,9 +127,8 @@ for log_file in listdir(directory):
       #print experiment_info
 
 
-
     L1_type = int(float(experiment_info_values[0]))
-    print L1_type
+    #print L1_type
 
     om_xy = float(experiment_info_values[1])
     om_y = float(experiment_info_values[2])
@@ -147,7 +146,7 @@ for log_file in listdir(directory):
 
     #LPF_type = int(float(experiment_info_values[14]))
 
-    # Check if experiment data exists for this experiment
+    # Check if the experiment is valid for comparison, and if log data exists for this experiment
     if L1_type == compare_L1_type and path.isfile(directory + experiment + "_l1_ref_output.csv"):
 
       # Then evaluate cost and increase file counter
@@ -159,47 +158,92 @@ for log_file in listdir(directory):
         CostFunction[logfile_counter,2] = cost
 
         logfile_counter = logfile_counter + 1
+      # end if
 
     # end if
   # end if
-  
+
 # end for
 
+# Truncate the cost function value matrix 
 CostFunction = CostFunction[0:logfile_counter,:]
 
 ###############################################################################
 
 print CostFunction
 
+
+### Plot and save the cost function for each parameters pair 
 omega = np.unique(CostFunction[:,0])
 refmodel = np.unique(CostFunction[:,1])
 
-print omega
-print refmodel
+#print omega
+#print refmodel
 
 X, Y = np.meshgrid(omega, refmodel) 
 
-Z = np.zeros( (max(omega.shape), max(refmodel.shape)) )
+#print X
+#print Y
 
+Z = np.zeros( (max(refmodel.shape), max(omega.shape)) )
+multiples = np.zeros( (max(refmodel.shape), max(omega.shape)) )
+
+# Populate the Z matrix with cost function data for plotting
 for cost_index in range(0,max(CostFunction.shape)):
 
   om = CostFunction[cost_index][0]
   ref = CostFunction[cost_index][1]
 
-  Z_x_index = np.where(omega == om)[0][0]
   Z_y_index = np.where(refmodel == ref)[0][0]
+  Z_x_index = np.where(omega == om)[0][0]
 
-  Z[Z_x_index][Z_y_index] = CostFunction[cost_index][2]
+  # Add the cost for the parameter pair into the correct index (adding for averaging later)
+  Z[Z_y_index][Z_x_index] = Z[Z_y_index][Z_x_index] + CostFunction[cost_index][2]
+  
+  # Keep track of the total number of entries for each parameter pair
+  multiples[Z_y_index][Z_x_index] = multiples[Z_y_index][Z_x_index] + 1
 
 # end for
 
-print Z
+# Fill empty indices in Z with 'nan'
+empty_indices = np.where(multiples == 0)
 
-print "\n"
+for i in range(0,empty_indices[0].shape[0]):
+  multiples[ empty_indices[0][i] ][ empty_indices[1][i] ] = float('nan')
+
+
+# Take the average of the cost function for multiple data
+Z = Z/multiples
+#print Z
+
+### Print the cost function values for plotting in MATLAB
+print "\nZ = [",
 
 for i in range(0,Z.shape[0]):
   for j in range(0,Z.shape[1]):
-    print Z[i][j],
+    if not j == Z.shape[1]-1:
+      print Z[i][j], ",",
+    else:
+      print Z[i][j],
 
-  print ""
+  if not i == Z.shape[0]-1:
+    print ";"
+  else:
+    print "];"
   
+
+levels = np.arange(np.min(Z), np.max(Z), 0.01)
+norm = cm.colors.Normalize(vmax=abs(Z).max(), vmin=-abs(Z).max())
+cmap = cm.PRGn
+
+plt.figure(1, figsize=(9,6))
+CS = plt.contourf(X, Y, Z, levels, cmap=plt.cm.jet)#,
+#                 cmap=cm.get_cmap(cmap, len(levels) - 1),
+#                 norm=norm,
+#                 )
+cbar = plt.colorbar(CS, format="%.3f")
+cbar.ax.set_ylabel('Cost Function')
+
+plt.xlabel('Cut-off Frequency [rad/s]')
+plt.ylabel('Output Predictor Eigenvalue')
+plt.show()
