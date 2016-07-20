@@ -928,7 +928,7 @@ class DroneController(DroneVideoDisplay):
         pitch_out = pitch_des
         
       else:
-        # Then use Projection based l1 output feedback on pitch, roll and z velocity
+        # Then use L1 output feedback on pitch, roll and z velocity
 
         # NOTE: TEST X-Y SYMMETRY
         if self.symmetry_check:
@@ -936,100 +936,16 @@ class DroneController(DroneVideoDisplay):
           des.x = np.array([des.x[1], des.x[0], des.x[2]])
           curr.x = np.array([curr.x[1], curr.x[0], curr.x[2]])
         
-        
-        # Calculate error between actual and reference state position
-#        y_tilde = self.x_ref - np.array( [ [curr.rpy[0]], [curr.rpy[1]], [curr.x_dot[2]] ] )
-        y_tilde = self.x_ref - np.array( [ [ardrone_rpy[0][0]], [ardrone_rpy[1][0]], [curr.x_dot[2]] ] )
-        
-        ### Projection Operator to update sigma_hat based on y_tilde            ###
-        f = ((self.epsilon_sigma + 1.0)*(self.sigma_hat.T.dot( self.sigma_hat )[0][0] ) - self.sigma_hat_max**2)/(self.epsilon_sigma*self.sigma_hat_max**2)
-        grad_f = 2.0*(self.epsilon_sigma + 1.0)/(self.epsilon_sigma*self.sigma_hat_max**2)*self.sigma_hat
-    
-        if f<0:
-          projection_result = -y_tilde
-        else:
-          if -grad_f.T.dot(y_tilde)[0][0] <0:
-            projection_result = -y_tilde
-          else:
-            projection_result = -y_tilde + (1/np.linalg.norm(grad_f))*(grad_f)*grad_f.T.dot(y_tilde)[0][0]*f
-      
-        # multiply by adaptive Gain and integrate 
-        sigma = self.sigma_hat + self.dt*(np.array([[1],[1],[1]])*self.Gamma*projection_result)
-        
-        # hard clamp in case of projection issues
-        sigma_x = self.clamp(sigma[0][0], self.sigma_hat_max*(1+self.epsilon_sigma) )
-        sigma_y = self.clamp(sigma[1][0], self.sigma_hat_max*(1+self.epsilon_sigma) )
-        sigma_z = self.clamp(sigma[2][0], self.sigma_hat_max*(1+self.epsilon_sigma) )
-        
-        if (sigma[0][0] > sigma_x) or (sigma[1][0] > sigma_y) or (sigma[2][0] > sigma_z):
-          print "sigma clamp used"
-
-        self.sigma_hat = np.array([[sigma_x],[sigma_y],[sigma_z]])
-        
-
-
+        ### Third order median filter 
         L1_input = np.array([[roll_des], [pitch_des], [zdot_des]])
-
+        
         # Removing spikes in the signal (1-D, 3rd order median filter)
         self.L1_input = np.median(np.array([self.medfilter_oldold, self.medfilter_old, L1_input]), axis=0)
         self.medfilter_oldold = self.medfilter_old
         self.medfilter_old = L1_input
         
-        
-        ### Find revised desired roll-pitch-zdot by low-pass filtering the error ###
-        track_error = self.L1_input - self.sigma_hat
-        #track_error = np.diag(np.array([-1,-1,1])).dot(track_error)
-
-
-        if self.LPF_type == 1:
-          ###	First Order Low Pass Filter
-          # low pass filter C(s) = omega_cutoff / (s + omega_cutoff) ### NOTE: decoupled directions
-          self.x_L1_des = self.x_L1_des + self.dt*self.omega_cutoff.dot( -self.x_L1_des + track_error )
-
-        elif self.LPF_type == 3:
-          #### Third Order Low Pass Filter y = C(s)*u
-          self.u_dot[0][0] = 1.0/self.dt*(track_error[0][0] - self.u[0][0]) # u_dot = 1/dt*(u - u_old)
-          self.u_dot[1][0] = 1.0/self.dt*(track_error[1][0] - self.u[1][0]) # u_dot = 1/dt*(u - u_old)
-          self.u_dot[2][0] = 1.0/self.dt*(track_error[2][0] - self.u[2][0]) # u_dot = 1/dt*(u - u_old)
-
-          self.u = track_error # set current u to track_error (in next iteration, this is automatically u_old)
-    
-          self.y_ddot[0][0] = self.y_ddot[0][0] + self.dt*(-3*self.omega_cutoff[0][0]*(self.y_ddot[0][0]) - 3*(self.omega_cutoff[0][0]**2)*(self.y_dot[0][0]) - (self.omega_cutoff[0][0]**3)*(self.y[0][0]) + 3*(self.omega_cutoff[0][0]**2)*(self.u_dot[0][0]) + (self.omega_cutoff[0][0]**3)*(self.u[0][0]) )
-
-          self.y_ddot[1][0] = self.y_ddot[1][0] + self.dt*(-3*self.omega_cutoff[1][1]*(self.y_ddot[1][0]) - 3*(self.omega_cutoff[1][1]**2)*(self.y_dot[1][0]) - (self.omega_cutoff[1][1]**3)*(self.y[1][0]) + 3*(self.omega_cutoff[1][1]**2)*(self.u_dot[1][0]) + (self.omega_cutoff[1][1]**3)*(self.u[1][0]) )
-
-          self.y_ddot[2][0] = self.y_ddot[2][0] + self.dt*(-3*self.omega_cutoff[2][2]*(self.y_ddot[2][0]) - 3*(self.omega_cutoff[2][2]**2)*(self.y_dot[2][0]) - (self.omega_cutoff[2][2]**3)*(self.y[2][0]) + 3*(self.omega_cutoff[2][2]**2)*(self.u_dot[2][0]) + (self.omega_cutoff[2][2]**3)*(self.u[2][0]) )
-
-
-          self.y_dot[0][0] = self.y_dot[0][0] + self.dt*(self.y_ddot[0][0])
-          self.y_dot[1][0] = self.y_dot[1][0] + self.dt*(self.y_ddot[1][0])
-          self.y_dot[2][0] = self.y_dot[2][0] + self.dt*(self.y_ddot[2][0])
-
-          self.y[0][0] = self.y[0][0] + self.dt*(self.y_dot[0][0])
-          self.y[1][0] = self.y[1][0] + self.dt*(self.y_dot[1][0])
-          self.y[2][0] = self.y[2][0] + self.dt*(self.y_dot[2][0])
-        
-####	Third Order Low Pass Filter y = C(s)*u
-##        # low pass filter C(s) = (3*omega_cutoff^2*s + omega_cutoff^3)/(s^3 + 3*omega_cutoff*s^2 + 3*omega_cutoff^2*s + omega_cutoff^3)
-##        
-##        # first find derivative of input signal (i.e. u = track_error, u_dot = d/dt(track_error) )
-#        self.u_dot = 1/self.dt*(track_error - self.u) # u_dot = 1/dt*(u - u_old)
-#        self.u = track_error # set current u to track_error (in next iteration, this is automatically u_old)
-#       
-#        self.y_ddot = self.y_ddot + self.dt*(-3*self.omega_cutoff.dot(self.y_ddot) - 3*(self.omega_cutoff**2).dot(self.y_dot) - (self.omega_cutoff**3).dot(self.y) + 3*(self.omega_cutoff**2).dot(self.u_dot) + (self.omega_cutoff**3).dot(self.u) )
-#        self.y_dot = self.y_dot + self.dt*(self.y_ddot)
-#        self.y = self.y + self.dt*(self.y_dot)
-        
-          # low filter output is L1 desired velocity
-          self.x_L1_des = self.y
-
-        else:
-          print "\n !!! NO FILTER TYPE !!! reverting to 1st order LPF"
-          self.x_L1_des = self.x_L1_des + self.dt*self.omega_cutoff.dot( -self.x_L1_des + track_error )
-        
-        
-        ### Reference model -- M(s) = m/(s+m) -- x_ref = M(s)(u + sigma_hat) ###
-        self.x_ref = self.x_ref + self.dt*self.B_m.dot( -self.x_ref + self.x_L1_des + self.sigma_hat )
+        # find L1 desired commands
+        self.determineL1Command( np.array([ [ardrone_rpy[0][0]], [ardrone_rpy[1][0]], [curr.x_dot[2]] ]) )
         
         
         ### Log to csv file
@@ -1060,7 +976,7 @@ class DroneController(DroneVideoDisplay):
     
           self.old_rp_error = rp_error
         
-      
+        
       #########################################################################
 
       ### Check for valid outputs and LIMIT if necessary
@@ -1390,7 +1306,7 @@ class DroneController(DroneVideoDisplay):
       #if rospy.get_time() - start_time > 0.0045:
       #  print rospy.get_time() - start_time
 
-      self.determineCommands_busy = False
+    self.determineCommands_busy = False
 
 ###############################################################################
   
@@ -1451,6 +1367,10 @@ class DroneController(DroneVideoDisplay):
       sigma_x = self.clamp(sigma[0][0], self.sigma_hat_max*(1+self.epsilon_sigma) )
       sigma_y = self.clamp(sigma[1][0], self.sigma_hat_max*(1+self.epsilon_sigma) )
       sigma_z = self.clamp(sigma[2][0], self.sigma_hat_max*(1+self.epsilon_sigma) )
+      
+      if (sigma[0][0] > sigma_x) or (sigma[1][0] > sigma_y) or (sigma[2][0] > sigma_z):
+        print "sigma clamp used"
+      
       self.sigma_hat = np.array([[sigma_x],[sigma_y],[sigma_z]])
 
     else:
