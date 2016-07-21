@@ -291,53 +291,61 @@ class DroneController(DroneVideoDisplay):
     self.current_time = time.strftime("%Y-%m-%d_%H-%M-%S_",time.localtime())
 
     ### Initialize zero vectors 
+    self.L1_reinit()
 
-    self.x_L1_des = np.array([[0.0],[0.0],[0.0]])
-
-    # 3rd order filter initialization
-    self.u_dot = np.array([[0.0],[0.0],[0.0]])
-    self.u = np.array([[0.0],[0.0],[0.0]])
-    self.y_ddot = np.array([[0.0],[0.0],[0.0]])
-    self.y_dot = np.array([[0.0],[0.0],[0.0]])
-    self.y = np.array([[0.0],[0.0],[0.0]])
-
-    self.oldtime = rospy.get_time() # for integration
-
-
-    self.sigma_hat = np.array([[0.0],[0.0],[0.0]]) # adaptive estimate
-
-    self.L1_input = np.array([[0.0],[0.0],[0.0]])
-
-    self.x_ref = np.array([[0.0],[0.0],[0.0]]) # initialize reference x position
-
-    # errors (primarily for derivative controller)
-    self.old_pos_error = np.array([[0.0],[0.0],[0.0]])
-    self.old_err = np.array([[0.0],[0.0],[0.0]])
-    self.old_rp_error = np.array([[0.0],[0.0]])
-
+    # initialize controller is busy flag
     self.determineCommands_busy = False
 
     ### Now initialize L1 parameters based on L1 architecture
     if self.L1_type == 1:
-      print "L1 x-y-z position controller with piecewice constant adaptation"
       
-      ### L1 low pass filter
-      #self.K = 20*np.diag(np.array([6.0, 6.0, 8.0]))
-      #self.K = np.diag(np.array([1.0, 1.0, 1.0]))
-      self.K = np.diag(np.array([0.8, 0.8, 2.0]))
-      self.omega_0 = np.eye(3)
+      if self.simulation_flag:
+        print "!!!!!  RUNNING IN SIMULATION !!!!!\n"
+        print "L1 x-y-z position controller with piecewice constant adaptation"
+      
+        ### L1 low pass filter
+        #self.K = 20*np.diag(np.array([6.0, 6.0, 8.0]))
+        #self.K = np.diag(np.array([1.0, 1.0, 1.0]))
+        self.K = np.diag(np.array([0.8, 0.8, 2.0]))
+        self.omega_0 = np.eye(3)
 
-      # L1 parameter adaptation
-      self.Gamma = 100.0
+        # L1 parameter adaptation
+        self.Gamma = 100.0
 
-      ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
-      # M_i(s) = m_i/(s+m_i), i = x,y,z
+        ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
+        # M_i(s) = m_i/(s+m_i), i = x,y,z
 
-      ##self.A_m = np.diag(np.array([-4.0, -1.0, -1.0]))
-      self.A_m = np.diag(np.array([-25.0, -25.0, -4.5])) # USE THIS FOR L1 OUTPUT POSITION
+        ##self.A_m = np.diag(np.array([-4.0, -1.0, -1.0]))
+        self.A_m = np.diag(np.array([-25.0, -25.0, -4.5])) # USE THIS FOR L1 OUTPUT POSITION
+        self.B_m = -self.A_m
+      
+        self.B_inv = np.linalg.inv(self.B_m)
+        
+      else:
+        print "Running on Real System \n"
+        print "L1 x-y-z position controller with piecewice constant adaptation"
+        
+        ### L1 low pass filter
+        kxy = 1.0
+        self.K = np.diag(np.array([kxy, kxy, 1.8]))
+        self.omega_0 = np.eye(3)
+
+        # L1 parameter adaptation
+        self.Gamma = 1000.0
+
+        ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
+        # M_i(s) = m_i/(s+m_i), i = x,y,z
+
+        mxy = -25.0
+        self.A_m = np.diag(np.array([mxy, mxy, -4.5]))
+        
       self.B_m = -self.A_m
     
-      #self.B_inv = np.linalg.inv(self.B_m)
+      self.B_inv = np.linalg.inv(self.B_m)
+        
+        
+        
+        
 
       ### Create CSV file to keep a record of the parameters that produced the recorded results
       with open(self.save_dir + self.current_time + 'l1_experiment_info.csv','ab') as l1_info:
@@ -359,7 +367,7 @@ class DroneController(DroneVideoDisplay):
 
       # Check if running in simulation or on real system
       if self.simulation_flag:
-        print "\n !!!!!  RUNNING IN SIMULATION !!!!!\n"
+        print "!!!!!  RUNNING IN SIMULATION !!!!!\n"
         print "L1 x-y-z translational velocity controller with projection based adaptation"
 
         ### L1 low pass filter cutoff frequency   
@@ -380,7 +388,7 @@ class DroneController(DroneVideoDisplay):
       
       else:
         ###### NOTE: TYPE 2: REAL SYSTEM PARAMETERS ARE HERE ######
-        print "\n Running on Real System \n"
+        print "Running on Real System \n"
         print "L1 x-y-z translational velocity controller with projection based adaptation"
         
         if self.LPF_type ==3:
@@ -482,7 +490,7 @@ class DroneController(DroneVideoDisplay):
 
       # Check if running in simulation or on real system
       if self.simulation_flag:
-        print "\n !!!!!  RUNNING IN SIMULATION !!!!!\n"
+        print "!!!!!  RUNNING IN SIMULATION !!!!!\n"
         print "L1 augmented standard nonlinear controller with projection based adaptation"
         # Gamma = 1200, 100, 100 
         ### L1 low pass filter cutoff frequency
@@ -499,7 +507,7 @@ class DroneController(DroneVideoDisplay):
       
       else:
         ###### NOTE: TYPE 4: REAL SYSTEM PARAMETERS ARE HERE ######
-        print "\n Running on Real System \n"
+        print "Running on Real System \n"
         print "L1 augmented standard nonlinear controller with projection based adaptation"
         
 
@@ -952,8 +960,10 @@ class DroneController(DroneVideoDisplay):
         with open(self.save_dir + self.current_time + 'std_ctrl_augmented_L1.csv','ab') as ref_model:
           writer = csv.writer(ref_model)
           #time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3)
-          writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.L1_input[0][0], self.L1_input[1][0], self.L1_input[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], 0,0,0, curr.rpy[0], curr.rpy[1], curr.rpy[2], ardrone_rpy[0][0], ardrone_rpy[1][0], ax_b, ay_b]))
-        
+          #writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.L1_input[0][0], self.L1_input[1][0], self.L1_input[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], 0,0,0, curr.rpy[0], curr.rpy[1], curr.rpy[2], ardrone_rpy[0][0], ardrone_rpy[1][0], ax_b, ay_b]))
+          f = '%.4f'
+          writer.writerow( np.array([ str(now.secs), str(now.nsecs), f%self.x_ref[0][0], f%self.x_ref[1][0], f%self.x_ref[2][0], f%curr.x_dot[0], f%curr.x_dot[1], f%curr.x_dot[2], f%self.sigma_hat[0][0], f%self.sigma_hat[1][0], f%self.sigma_hat[2][0], f%self.x_L1_des[0][0], f%self.x_L1_des[1][0], f%self.x_L1_des[2][0], f%self.L1_input[0][0], f%self.L1_input[1][0], f%self.L1_input[2][0], f%curr.x[0], f%curr.x[1], f%curr.x[2], f%des.x[0], f%des.x[1], f%des.x[2], 0,0,0, f%curr.rpy[0], f%curr.rpy[1], f%curr.rpy[2], f%ardrone_rpy[0][0], f%ardrone_rpy[1][0], f%ardrone_rpy[2][0] ]) )
+          
 
         if not(self.use_angle_pd):
           ### Send commands
@@ -1031,19 +1041,6 @@ class DroneController(DroneVideoDisplay):
           
           # calculate error between actual and reference state position
           y_tilde = self.x_ref - np.reshape(curr.x, (3,-1))
-          #self.pubYtilde_x.publish(self.y_tilde[0][0])
-          #self.pubYtilde_y.publish(self.y_tilde[1][0])
-          #self.pubYtilde_z.publish(self.y_tilde[2][0])
-        
-          # ensure dt is not 0
-          if self.dt <= 0.0001:
-            #print 'dt min reached: ', self.dt
-            self.dt = 0.001
-            
-          #m = 20.0
-          #k = 0.5
-#          m = 25.0
-#          k = 0.8
           
           self.sigma_hat[0][0] = -1.0/self.B_m[0][0] * ( 1.0 / (math.exp(self.A_m[0][0]*self.dt) - 1.0) ) * (1.0/self.A_m[0][0]) * math.exp(self.A_m[0][0]*self.dt) * y_tilde[0][0]
           self.sigma_hat[1][0] = -1.0/self.B_m[1][1] * ( 1.0 / (math.exp(self.A_m[1][1]*self.dt) - 1.0) ) * (1.0/self.A_m[1][1]) * math.exp(self.A_m[1][1]*self.dt) * y_tilde[1][0]
@@ -1051,45 +1048,11 @@ class DroneController(DroneVideoDisplay):
   
           
 #          eta_hat = 1.0*self.x_L1_des[0][0] + self.sigma_hat[0][0] - des.x[0]
-#  
 #          self.x_L1_des[0][0] = self.x_L1_des[0][0] + self.dt*(-k*eta_hat)
-#          
 #          self.x_ref[0][0] = self.x_ref[0][0] + self.dt*(m)*( -self.x_ref[0][0] + self.x_L1_des[0][0] + self.sigma_hat[0][0] )
           
           
-#          ### Piecewise constant update of sigma_hat based on y_tilde ###
-#          ### NOTE: Implementation currently assumes A_m diagonal
-#          # calculate matrix exponential of A_m*T_s
-#          Am_exp = np.diag(np.array([math.exp( self.A_m[0][0] * self.dt ), math.exp( self.A_m[1][1] * self.dt ), math.exp( self.A_m[2][2] * self.dt )]))
-#          #print Am_exp[0][0] - 1, Am_exp[1][1] - 1, Am_exp[2][2] - 1
-#          #print 'dt: ', self.dt
-#          
-#          # calculate Phi(T_s)
-#          Phi_inv = np.diag(np.array( [ 1.0/(Am_exp[0][0] - 1.0), 1.0/(Am_exp[1][1] - 1.0), 1.0/(Am_exp[2][2] - 1.0) ] ))
-#          #if np.isnan(1/(Am_exp[0][0] - 1)) or np.isinf(1/(Am_exp[0][0] - 1)):
-#          #  print 1/(Am_exp[0][0] - 1)
-#          # Phi_inv = np.linalg.inv(Am_exp - np.eye(3))
-#          Phi_inv = Phi_inv.dot( self.A_m )
-#          #print 'Phi_inv', '\n', Phi_inv, '\n' 
-#        
-#          # calculate sigma_hat
-#          self.sigma_hat = -self.B_inv.dot( Phi_inv.dot( Am_exp.dot( y_tilde ) ) )
-#          
-#          #self.sigma_hat = np.array( [ [-self.B_inv[0][0]*Phi_inv[0][0]*Am_exp[0][0]*y_tilde[0][0]] , [-self.B_inv[1][1]*Phi_inv[1][1]*Am_exp[1][1]*y_tilde[1][0]] , [-self.B_inv[2][2]*Phi_inv[2][2]*Am_exp[2][2]*y_tilde[2][0]] ] )
-#    
-#          #sigma_x = self.clamp(self.sigma_hat[0][0],30)
-#          #if np.isnan(sigma_x):
-#          #  sigma_x = 0
-#          #sigma_y = self.clamp(self.sigma_hat[1][0],30)
-#          #if np.isnan(sigma_y):
-#          #  sigma_y = 0
-#          #sigma_z = self.clamp(self.sigma_hat[2][0],30)
-#          #if np.isnan(sigma_z):
-#          #  sigma_z = 0
-#          #self.sigma_hat = np.array([[sigma_x],[sigma_y],[sigma_z]])
-#          
-#          #if np.isnan(self.sigma_hat[0][0]):
-#          #  print 'sigma_hat', '\n', self.sigma_hat, '\n'
+
         
         
           ### Find revised x desired L1 ###
@@ -1098,10 +1061,13 @@ class DroneController(DroneVideoDisplay):
           # C = eye(3), diag Am = -Bm => K_g = eye(3)
           # -np.linalg.inv( np.eye(3).dot( (np.linalg.inv(A_m)).dot(B_m) ) )
           # r_g(t) = r(t)
-          r_g = np.reshape(des.x, (3,-1))
+          
+          self.L1_input = np.reshape(des.x, (3,-1))
+          
+          #r_g = np.reshape(des.x, (3,-1))
           
           # calculate intermediate signal for adaptive ouput controller
-          eta_hat = self.omega_0.dot( self.x_L1_des ) + self.sigma_hat - r_g
+          eta_hat = self.omega_0.dot( self.x_L1_des ) + self.sigma_hat - self.L1_input
           #print 'eta_hat', '\n', eta_hat
           
           # calculate revised x position -- D(s) = 1/s, simple integrator
@@ -1118,7 +1084,9 @@ class DroneController(DroneVideoDisplay):
             # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3)
             #writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.L1_input[0][0], self.L1_input[1][0], self.L1_input[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2]]))
             # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3), desired_acc(1:3), rpy(1:3)
-            writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.L1_input[0][0], self.L1_input[1][0], self.L1_input[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], 0,0,0, curr.rpy[0], curr.rpy[1], curr.rpy[2]]))
+            #writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.L1_input[0][0], self.L1_input[1][0], self.L1_input[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], 0,0,0, curr.rpy[0], curr.rpy[1], curr.rpy[2]]))
+            f = '%.4f'
+            writer.writerow( np.array([ str(now.secs), str(now.nsecs), f%self.x_ref[0][0], f%self.x_ref[1][0], f%self.x_ref[2][0], f%curr.x_dot[0], f%curr.x_dot[1], f%curr.x_dot[2], f%self.sigma_hat[0][0], f%self.sigma_hat[1][0], f%self.sigma_hat[2][0], f%self.x_L1_des[0][0], f%self.x_L1_des[1][0], f%self.x_L1_des[2][0], f%self.L1_input[0][0], f%self.L1_input[1][0], f%self.L1_input[2][0], f%curr.x[0], f%curr.x[1], f%curr.x[2], f%des.x[0], f%des.x[1], f%des.x[2], 0,0,0, f%curr.rpy[0], f%curr.rpy[1], f%curr.rpy[2], f%ardrone_rpy[0][0], f%ardrone_rpy[1][0], f%ardrone_rpy[2][0] ]) )
   
           
         #print self.sigma_hat
@@ -1138,20 +1106,16 @@ class DroneController(DroneVideoDisplay):
 
         # Z-velocity command m/sec)
         #z_velocity_out =  ((2.0*self.zeta/self.tau_z) * (des.x_dot[2] - curr.x_dot[2]) + (1.0/(self.tau_z**2))*(des.x[2] - curr.x[2]) )
-        z_velocity_out = (1.0/(self.tau_z**2))*(self.x_L1_des[2][0] - curr.x[2]) ### NOTE: x_L1_des z-position
+        z_velocity_out = (1.0/(self.tau_z**2))*0.9*(self.x_L1_des[2][0] - curr.x[2]) ### NOTE: x_L1_des z-position
     
         # calculate the desired acceleration in x and y (global coordinates, [m/s^2] )
         #ax = (2.0*self.zeta/self.tau_x)*(0 - curr.x_dot[0]) + (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
         #ay = (2.0*self.zeta/self.tau_x)*(0 - curr.x_dot[1]) + (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
-        #ax = (1.0/(self.tau_x*self.tau_x))*0.1*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
-        #ax = (1.0/(self.tau_x*self.tau_x))*(des.x[0]-curr.x[0])
-        #ay = (2.0*self.zeta/self.tau_x)*0.1*(des.x_dot[1] - curr.x_dot[1]) + (1.0/(self.tau_x*self.tau_x))*(des.x[1]-curr.x[1]) ### NOTE: x_L1_des y-position
   
-        ax = (2.0*self.zeta/self.tau_x)*0.35*(1.0/self.dt)*(self.x_L1_des[0][0] - curr.x[0] - self.old_err[0][0]) + (1.0/(self.tau_x*self.tau_x))*1.5*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
-        ay = (2.0*self.zeta/self.tau_x)*0.35*(1.0/self.dt)*(self.x_L1_des[1][0] - curr.x[1] - self.old_err[1][0]) + (1.0/(self.tau_x*self.tau_x))*1.5*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
+        ax = (2.0*self.zeta/self.tau_x)*0.38*(1.0/self.dt)*(self.x_L1_des[0][0] - curr.x[0] - self.old_err[0][0]) + (1.0/(self.tau_x*self.tau_x))*1.6*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
+        ay = (2.0*self.zeta/self.tau_x)*0.38*(1.0/self.dt)*(self.x_L1_des[1][0] - curr.x[1] - self.old_err[1][0]) + (1.0/(self.tau_x*self.tau_x))*1.6*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
         self.old_err = self.x_L1_des - np.reshape(curr.x, (3,-1))
 
-        #ay = (2.0*self.zeta/self.tau_x)*(des.x_dot[1] - curr.x_dot[1]) + (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
         #ax = (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
         #ay = (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
       
@@ -1263,7 +1227,6 @@ class DroneController(DroneVideoDisplay):
       ### Check for valid outputs and LIMIT if necessary
       if np.fabs(pitch_out) > 0.75:
         print "pitch: ", pitch_out, "   ax: ", ax, "   ay: ", ay, "   dt: ", self.dt
-        print "pitch D term: ", check_pitch_D_term
         pitch_out = np.sign(pitch_out)*0.75
 
       elif np.isnan(pitch_out):
@@ -1272,7 +1235,6 @@ class DroneController(DroneVideoDisplay):
       
       if np.fabs(roll_out) > 0.75:
         print "roll: ", roll_out, "   ax: ", ax, "   ay: ", ay, "   dt: ", self.dt
-        print "roll D term: ", check_roll_D_term
         roll_out = np.sign(roll_out)*0.75
 
       elif np.isnan(roll_out):
@@ -1303,8 +1265,8 @@ class DroneController(DroneVideoDisplay):
         
         self.SendCommand(roll_out, pitch_out, yaw_velocity_out, z_velocity_out)
       
-      #if rospy.get_time() - start_time > 0.0045:
-      #  print rospy.get_time() - start_time
+    #if rospy.get_time() - start_time > 0.0045:
+    #  print rospy.get_time() - start_time
 
     self.determineCommands_busy = False
 
@@ -1313,7 +1275,7 @@ class DroneController(DroneVideoDisplay):
   # Reinitialize L1 used vectors
   def L1_reinit(self):
 
-    print "\n!! Reinitializing L1 Adaptive Controller !!\n"
+    print "\nInitializing L1 Adaptive Controller \n"
 
     ### Initialize zero vectors 
     self.x_L1_des = np.array([[0.0],[0.0],[0.0]])
@@ -1325,7 +1287,7 @@ class DroneController(DroneVideoDisplay):
     self.y_dot = np.array([[0.0],[0.0],[0.0]])
     self.y = np.array([[0.0],[0.0],[0.0]])
 
-    self.oldtime = rospy.get_rostime() # for integration
+    self.oldtime = rospy.get_time() # for integration
 
 
     self.sigma_hat = np.array([[0.0],[0.0],[0.0]]) # adaptive estimate
@@ -1349,7 +1311,9 @@ class DroneController(DroneVideoDisplay):
     y_tilde = self.x_ref - np.reshape(system_output, (3,-1))
     
     if self.use_projection_operator:
-      ### Projection Operator to update sigma_hat based on y_tilde ###
+      ### Projection Based Adaptation ###
+      
+      # Use projection operator to update sigma_hat based on y_tilde ###
       f = ((self.epsilon_sigma + 1.0)*(self.sigma_hat.T.dot( self.sigma_hat )[0][0] ) - self.sigma_hat_max**2)/(self.epsilon_sigma*self.sigma_hat_max**2)
       grad_f = 2.0*(self.epsilon_sigma + 1.0)/(self.epsilon_sigma*self.sigma_hat_max**2)*self.sigma_hat
       
@@ -1375,7 +1339,32 @@ class DroneController(DroneVideoDisplay):
 
     else:
       ### Piecewise Constant Adaptation ####
-      self.sigma_hat = np.array([[sigma_x],[sigma_y],[sigma_z]])
+
+	    # Piecewise constant update of sigma_hat based on y_tilde
+	    ### NOTE: Implementation currently assumes A_m diagonal
+	    
+      self.sigma_hat[0][0] = -1.0/self.B_m[0][0] * ( 1.0 / (math.exp(self.A_m[0][0]*self.dt) - 1.0) ) * (1.0/self.A_m[0][0]) * math.exp(self.A_m[0][0]*self.dt) * y_tilde[0][0]
+      self.sigma_hat[1][0] = -1.0/self.B_m[1][1] * ( 1.0 / (math.exp(self.A_m[1][1]*self.dt) - 1.0) ) * (1.0/self.A_m[1][1]) * math.exp(self.A_m[1][1]*self.dt) * y_tilde[1][0]
+      self.sigma_hat[2][0] = -1.0/self.B_m[2][2] * ( 1.0 / (math.exp(self.A_m[2][2]*self.dt) - 1.0) ) * (1.0/self.A_m[2][2]) * math.exp(self.A_m[2][2]*self.dt) * y_tilde[2][0]
+	    
+	    
+#	    # calculate matrix exponential of A_m*T_s
+#	    Am_exp = np.diag(np.array([math.exp( self.A_m[0][0] * self.dt ), math.exp( self.A_m[1][1] * self.dt ), math.exp( self.A_m[2][2] * self.dt )]))
+#	    #print Am_exp[0][0] - 1, Am_exp[1][1] - 1, Am_exp[2][2] - 1
+#	    #print 'dt: ', self.dt
+#	    
+#	    # calculate Phi(T_s)
+#	    Phi_inv = np.diag(np.array( [ 1.0/(Am_exp[0][0] - 1.0), 1.0/(Am_exp[1][1] - 1.0), 1.0/(Am_exp[2][2] - 1.0) ] ))
+#	    #if np.isnan(1/(Am_exp[0][0] - 1)) or np.isinf(1/(Am_exp[0][0] - 1)):
+#	    #  print 1/(Am_exp[0][0] - 1)
+#	    # Phi_inv = np.linalg.inv(Am_exp - np.eye(3))
+#	    Phi_inv = Phi_inv.dot( self.A_m )
+#	    #print 'Phi_inv', '\n', Phi_inv, '\n' 
+#
+#	    # calculate sigma_hat
+#	    self.sigma_hat = -self.B_inv.dot( Phi_inv.dot( Am_exp.dot( y_tilde ) ) )
+#	    #self.sigma_hat = np.array( [ [-self.B_inv[0][0]*Phi_inv[0][0]*Am_exp[0][0]*y_tilde[0][0]] , [-self.B_inv[1][1]*Phi_inv[1][1]*Am_exp[1][1]*y_tilde[1][0]] , [-self.B_inv[2][2]*Phi_inv[2][2]*Am_exp[2][2]*y_tilde[2][0]] ] )
+
         
     ### Find L1 desired by low-pass filtering tracking error ###
     track_error = self.L1_input - self.sigma_hat
@@ -1589,10 +1578,10 @@ class DroneController(DroneVideoDisplay):
 
       elif key == KeyMapping.L1reinit:
         if self.enable_L1_reinit:
-          print "Manual L1 reinit ... "
+          print "\n!!! Manual L1 reinit ... !!!"
           self.L1_reinit()
         else:
-          print "L1 reinit is disabled"
+          print "\n!!! L1 reinit is disabled !!!\n"
 
       else:
         # Now we handle moving, notice that this section is the opposite (+=) of the keyrelease section
