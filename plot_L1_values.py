@@ -4,9 +4,9 @@ import time
 import sys
 import csv
 
-show_plots = False
-interactive = False
-save_imgs = True
+show_plots = True
+interactive = True
+save_imgs = False
 
 # open the file from input argument from user
 print "\nOpening the following: ", sys.argv[1]#[26:45]
@@ -241,7 +241,15 @@ plt.grid(True)
 
 plt.figure(5, figsize=(9,6))
 if L1_type == 1:
-  print L1_type
+  plt.plot(exp_time, x[:,0])
+  plt.plot(exp_time, x_L1_des[:,0])
+  plt.plot(exp_time, L1_input[:,0])
+  plt.plot(exp_time, L1_input[:,0] - sigma_hat[:,0])
+  plt.plot(exp_time, x_ref[:,0])
+  
+  plt.xlabel('Time (sec)')
+  plt.ylabel('Position (m)')
+  plt.legend(['x','x-L1-des','x-des','x-des -- sigma-hat','x-ref'])
 
 elif L1_type == 2:
   plt.plot(exp_time, x_dot[:,0])
@@ -280,7 +288,15 @@ if save_imgs:
 
 plt.figure(6, figsize=(9,6))
 if L1_type == 1:
-  print L1_type
+  plt.plot(exp_time, x[:,1])
+  plt.plot(exp_time, x_L1_des[:,1])
+  plt.plot(exp_time, L1_input[:,1])
+  plt.plot(exp_time, L1_input[:,1] - sigma_hat[:,1])
+  plt.plot(exp_time, x_ref[:,1])
+  
+  plt.xlabel('Time (sec)')
+  plt.ylabel('Position (m)')
+  plt.legend(['y','y-L1-des','y-des','y-des -- sigma-hat','y-ref'])
 
 elif L1_type == 2:
   plt.plot(exp_time, x_dot[:,1])
@@ -319,14 +335,27 @@ if save_imgs:
 
 
 plt.figure(7, figsize=(9,6))
-plt.plot(exp_time, x_dot[:,2])
-plt.plot(exp_time, x_L1_des[:,2])
-plt.plot(exp_time, L1_input[:,2])
-plt.plot(exp_time, L1_input[:,2] - sigma_hat[:,2])
-plt.plot(exp_time,x_ref[:,2])
-plt.xlabel('Time (sec)')
-plt.ylabel('Velocity (m/s)')
-plt.legend(['z-dot','z-dot-L1','z-dot-des','z-dot-des -- sigma-hat'])
+
+if L1_type == 1:
+  plt.plot(exp_time, x[:,2])
+  plt.plot(exp_time, x_L1_des[:,2])
+  plt.plot(exp_time, L1_input[:,2])
+  plt.plot(exp_time, L1_input[:,2] - sigma_hat[:,2])
+  plt.plot(exp_time, x_ref[:,2])
+  
+  plt.xlabel('Time (sec)')
+  plt.ylabel('Position (m)')
+  plt.legend(['z','z-L1-des','z-des','z-des -- sigma-hat','z-ref'])
+  
+else:
+  plt.plot(exp_time, x_dot[:,2])
+  plt.plot(exp_time, x_L1_des[:,2])
+  plt.plot(exp_time, L1_input[:,2])
+  plt.plot(exp_time, L1_input[:,2] - sigma_hat[:,2])
+  plt.plot(exp_time,x_ref[:,2])
+  plt.xlabel('Time (sec)')
+  plt.ylabel('Velocity (m/s)')
+  plt.legend(['z-dot','z-dot-L1','z-dot-des','z-dot-des -- sigma-hat'])
 #plt.title('')
 #plt.axis([plt.axis()[0], plt.axis()[1], -1.0, 1.0])
 plt.grid(True)
