@@ -912,9 +912,8 @@ class DroneController(DroneVideoDisplay):
       pitch_des =  np.arcsin(ax_b)
       
       zdot_des = (1.0/(self.tau_z**2))*self.P_z_L1_correction*( pos_error[2][0] )
-
-      # First check whether drone is in flying mode
-      #       only use L1 when flying: 2 - landed, 3 - flying, 4 - hover, 6 - taking off, 7 - hover
+      
+      # Update the initial L1 delay timer, if active
       if self.start_flight_timer:
         duration = now.secs - self.start_time
         if duration >= self.delay_until_L1_start:
@@ -925,6 +924,8 @@ class DroneController(DroneVideoDisplay):
       else:
         duration = 0
 
+      # Check whether drone is in flying mode
+      # only use L1 when flying: 2 - landed, 3 - flying, 4 - hover, 6 - taking off, 7 - hover
       if (self.status.drone_state != 3) or duration < self.delay_until_L1_start:
         # use standard controller when not in flying mode
         
@@ -1028,43 +1029,53 @@ class DroneController(DroneVideoDisplay):
       
       if self.L1_type == 1:
         # then use Piecewise Constant l1 output feedback on position
-        # first check whether drone is in flying mode
         
-        # only use L1 when flying: 2 - landed, 6 - taking off, 3 - flying
-        if self.status.drone_state != 3:
+        # Update the initial L1 delay timer, if active
+        if self.start_flight_timer:
+          duration = now.secs - self.start_time
+          if duration >= self.delay_until_L1_start:
+             self.print_L1_status = True
+             if self.print_L1_status == self.print_L1_status_flag:
+               print "\nL1 control has taken over\n"
+               self.print_L1_status_flag = False
+        else:
+          duration = 0
+
+        # Check whether drone is in flying mode
+        # Only use L1 when flying mode and when the L1 delay timer is finished
+        # 2 - landed, 3 - flying, 4 - hover, 6 - taking off, 7 - hover
+        if (self.status.drone_state != 3) or duration < self.delay_until_L1_start:
           self.x_L1_des = np.reshape(des.x, (3,-1))
           y_tilde = np.array([[0.0],[0.0],[0.0]])
           #print self.x_L1_des
           #print 'no L1, start flying'
         else:
-          # use L1 adaptive output
+          # Use L1 adaptive output in position
+          
+          ##### Implementation for future general determineL1Command() method #####
+          ##self.L1_input = np.reshape(des.x, (3,-1))
+          ##
+          ### Find L1 desired commands
+          ##self.determineL1Command(np.reshape(curr.x, (3,-1)))
           
           # calculate error between actual and reference state position
           y_tilde = self.x_ref - np.reshape(curr.x, (3,-1))
           
+          ### Use piecewise constant adaptation ###
           self.sigma_hat[0][0] = -1.0/self.B_m[0][0] * ( 1.0 / (math.exp(self.A_m[0][0]*self.dt) - 1.0) ) * (1.0/self.A_m[0][0]) * math.exp(self.A_m[0][0]*self.dt) * y_tilde[0][0]
           self.sigma_hat[1][0] = -1.0/self.B_m[1][1] * ( 1.0 / (math.exp(self.A_m[1][1]*self.dt) - 1.0) ) * (1.0/self.A_m[1][1]) * math.exp(self.A_m[1][1]*self.dt) * y_tilde[1][0]
           self.sigma_hat[2][0] = -1.0/self.B_m[2][2] * ( 1.0 / (math.exp(self.A_m[2][2]*self.dt) - 1.0) ) * (1.0/self.A_m[2][2]) * math.exp(self.A_m[2][2]*self.dt) * y_tilde[2][0]
-  
           
 #          eta_hat = 1.0*self.x_L1_des[0][0] + self.sigma_hat[0][0] - des.x[0]
 #          self.x_L1_des[0][0] = self.x_L1_des[0][0] + self.dt*(-k*eta_hat)
 #          self.x_ref[0][0] = self.x_ref[0][0] + self.dt*(m)*( -self.x_ref[0][0] + self.x_L1_des[0][0] + self.sigma_hat[0][0] )
           
-          
-
-        
-        
           ### Find revised x desired L1 ###
-          
           # exact tracking: r_g = K_g * r, K_g = -inv(C*inv(Am)*Bm)
           # C = eye(3), diag Am = -Bm => K_g = eye(3)
           # -np.linalg.inv( np.eye(3).dot( (np.linalg.inv(A_m)).dot(B_m) ) )
           # r_g(t) = r(t)
-          
           self.L1_input = np.reshape(des.x, (3,-1))
-          
-          #r_g = np.reshape(des.x, (3,-1))
           
           # calculate intermediate signal for adaptive ouput controller
           eta_hat = self.omega_0.dot( self.x_L1_des ) + self.sigma_hat - self.L1_input
@@ -1072,7 +1083,6 @@ class DroneController(DroneVideoDisplay):
           
           # calculate revised x position -- D(s) = 1/s, simple integrator
           self.x_L1_des = self.x_L1_des + self.dt*( -self.K.dot( eta_hat ) )
-          #print self.x_L1_des
           
           
           ### reference model -- x_dot_ref = Am*x_ref + Bm(omega_0*x_L1_des + sigma_hat) ###
@@ -1081,31 +1091,24 @@ class DroneController(DroneVideoDisplay):
           # append to csv file
           with open(self.save_dir + self.current_time + 'l1_pos_output.csv','ab') as ref_model:
             writer = csv.writer(ref_model)
-            # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3)
-            #writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.L1_input[0][0], self.L1_input[1][0], self.L1_input[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2]]))
-            # time secs, time nsecs, x_ref(1:3), x_dot(1:3), sigma_hat(1:3), x_L1_des(1:3), x_dot_des(1:3), x(1:3), x_des(1:3), desired_acc(1:3), rpy(1:3)
-            #writer.writerow(np.array([now.secs, now.nsecs, self.x_ref[0][0], self.x_ref[1][0], self.x_ref[2][0], curr.x_dot[0], curr.x_dot[1], curr.x_dot[2], self.sigma_hat[0][0], self.sigma_hat[1][0], self.sigma_hat[2][0], self.x_L1_des[0][0], self.x_L1_des[1][0], self.x_L1_des[2][0], self.L1_input[0][0], self.L1_input[1][0], self.L1_input[2][0], curr.x[0], curr.x[1], curr.x[2], des.x[0], des.x[1], des.x[2], 0,0,0, curr.rpy[0], curr.rpy[1], curr.rpy[2]]))
+            
+            # write the values to the csv file with four digits after the decimal
             f = '%.4f'
-            writer.writerow( np.array([ str(now.secs), str(now.nsecs), f%self.x_ref[0][0], f%self.x_ref[1][0], f%self.x_ref[2][0], f%curr.x_dot[0], f%curr.x_dot[1], f%curr.x_dot[2], f%self.sigma_hat[0][0], f%self.sigma_hat[1][0], f%self.sigma_hat[2][0], f%self.x_L1_des[0][0], f%self.x_L1_des[1][0], f%self.x_L1_des[2][0], f%self.L1_input[0][0], f%self.L1_input[1][0], f%self.L1_input[2][0], f%curr.x[0], f%curr.x[1], f%curr.x[2], f%des.x[0], f%des.x[1], f%des.x[2], 0,0,0, f%curr.rpy[0], f%curr.rpy[1], f%curr.rpy[2], f%ardrone_rpy[0][0], f%ardrone_rpy[1][0], f%ardrone_rpy[2][0] ]) )
-  
-          
-        #print self.sigma_hat
-        self.pubL1des_x.publish(self.x_L1_des[0][0])
-        self.pubL1des_y.publish(self.x_L1_des[1][0])
-        self.pubL1des_z.publish(self.x_L1_des[2][0])
-    
-        self.pubParama.publish(self.sigma_hat[0][0])
-        self.pubParamb.publish(self.sigma_hat[1][0])
-        self.pubParamc.publish(self.sigma_hat[2][0])
-    
-        self.pubXref_x.publish(self.x_ref[0][0])
-        self.pubXref_y.publish(self.x_ref[1][0])
-        self.pubXref_z.publish(self.x_ref[2][0])
-
+            writer.writerow( np.array([ str(now.secs), str(now.nsecs), 
+              f%self.x_ref[0][0], f%self.x_ref[1][0], f%self.x_ref[2][0], 
+              f%curr.x_dot[0], f%curr.x_dot[1], f%curr.x_dot[2], 
+              f%self.sigma_hat[0][0], f%self.sigma_hat[1][0], f%self.sigma_hat[2][0], 
+              f%self.x_L1_des[0][0], f%self.x_L1_des[1][0], f%self.x_L1_des[2][0], 
+              f%self.L1_input[0][0], f%self.L1_input[1][0], f%self.L1_input[2][0], 
+              f%curr.x[0], f%curr.x[1], f%curr.x[2], 
+              f%des.x[0], f%des.x[1], f%des.x[2], 
+              0,0,0, 
+              f%curr.rpy[0], f%curr.rpy[1], f%curr.rpy[2], 
+              f%ardrone_rpy[0][0], f%ardrone_rpy[1][0], f%ardrone_rpy[2][0] ]) )
+              
         ###########################################################################
 
         # Z-velocity command m/sec)
-        #z_velocity_out =  ((2.0*self.zeta/self.tau_z) * (des.x_dot[2] - curr.x_dot[2]) + (1.0/(self.tau_z**2))*(des.x[2] - curr.x[2]) )
         z_velocity_out = (1.0/(self.tau_z**2))*0.9*(self.x_L1_des[2][0] - curr.x[2]) ### NOTE: x_L1_des z-position
     
         # calculate the desired acceleration in x and y (global coordinates, [m/s^2] )
@@ -1341,7 +1344,7 @@ class DroneController(DroneVideoDisplay):
       ### Piecewise Constant Adaptation ####
 
 	    # Piecewise constant update of sigma_hat based on y_tilde
-	    ### NOTE: Implementation currently assumes A_m diagonal
+	    ### NOTE: Implementation currently assumes A_m diagonal, use scipy.linalg expm for non-diagonal A_m
 	    
       self.sigma_hat[0][0] = -1.0/self.B_m[0][0] * ( 1.0 / (math.exp(self.A_m[0][0]*self.dt) - 1.0) ) * (1.0/self.A_m[0][0]) * math.exp(self.A_m[0][0]*self.dt) * y_tilde[0][0]
       self.sigma_hat[1][0] = -1.0/self.B_m[1][1] * ( 1.0 / (math.exp(self.A_m[1][1]*self.dt) - 1.0) ) * (1.0/self.A_m[1][1]) * math.exp(self.A_m[1][1]*self.dt) * y_tilde[1][0]
@@ -1375,35 +1378,16 @@ class DroneController(DroneVideoDisplay):
       self.x_L1_des = self.x_L1_des + self.dt*self.omega_cutoff.dot( -self.x_L1_des + track_error )
 
     elif self.LPF_type == 3:
-      #### Third Order Low Pass Filter y = C(s)*u
-      self.u_dot[0][0] = 1.0/self.dt*(track_error[0][0] - self.u[0][0]) # u_dot = 1/dt*(u - u_old)
-      self.u_dot[1][0] = 1.0/self.dt*(track_error[1][0] - self.u[1][0]) # u_dot = 1/dt*(u - u_old)
-      self.u_dot[2][0] = 1.0/self.dt*(track_error[2][0] - self.u[2][0]) # u_dot = 1/dt*(u - u_old)
-      
-      self.u = track_error # set current u to track_error (in next iteration, this is automatically u_old)
-      
-      self.y_ddot[0][0] = self.y_ddot[0][0] + self.dt*(-3*self.omega_cutoff[0][0]*(self.y_ddot[0][0]) - 3*(self.omega_cutoff[0][0]**2)*(self.y_dot[0][0]) - (self.omega_cutoff[0][0]**3)*(self.y[0][0]) + 3*(self.omega_cutoff[0][0]**2)*(self.u_dot[0][0]) + (self.omega_cutoff[0][0]**3)*(self.u[0][0]) )
-      self.y_ddot[1][0] = self.y_ddot[1][0] + self.dt*(-3*self.omega_cutoff[1][1]*(self.y_ddot[1][0]) - 3*(self.omega_cutoff[1][1]**2)*(self.y_dot[1][0]) - (self.omega_cutoff[1][1]**3)*(self.y[1][0]) + 3*(self.omega_cutoff[1][1]**2)*(self.u_dot[1][0]) + (self.omega_cutoff[1][1]**3)*(self.u[1][0]) )
-      self.y_ddot[2][0] = self.y_ddot[2][0] + self.dt*(-3*self.omega_cutoff[2][2]*(self.y_ddot[2][0]) - 3*(self.omega_cutoff[2][2]**2)*(self.y_dot[2][0]) - (self.omega_cutoff[2][2]**3)*(self.y[2][0]) + 3*(self.omega_cutoff[2][2]**2)*(self.u_dot[2][0]) + (self.omega_cutoff[2][2]**3)*(self.u[2][0]) )
+      ####	Third Order Low Pass Filter y = C(s)*u
+      # low pass filter C(s) = (3*omega_cutoff^2*s + omega_cutoff^3)/(s^3 + 3*omega_cutoff*s^2 + 3*omega_cutoff^2*s + omega_cutoff^3)
 
-      self.y_dot[0][0] = self.y_dot[0][0] + self.dt*(self.y_ddot[0][0])
-      self.y_dot[1][0] = self.y_dot[1][0] + self.dt*(self.y_ddot[1][0])
-      self.y_dot[2][0] = self.y_dot[2][0] + self.dt*(self.y_ddot[2][0])
-      
-      self.y[0][0] = self.y[0][0] + self.dt*(self.y_dot[0][0])
-      self.y[1][0] = self.y[1][0] + self.dt*(self.y_dot[1][0])
-      self.y[2][0] = self.y[2][0] + self.dt*(self.y_dot[2][0])
-        
-####	Third Order Low Pass Filter y = C(s)*u
-##          # low pass filter C(s) = (3*omega_cutoff^2*s + omega_cutoff^3)/(s^3 + 3*omega_cutoff*s^2 + 3*omega_cutoff^2*s + omega_cutoff^3)
-##          
-##          # first find derivative of input signal (i.e. u = track_error, u_dot = d/dt(track_error) )
-#          self.u_dot = 1.0/self.dt*(track_error - self.u) # u_dot = 1/dt*(u - u_old)
-#          self.u = track_error # set current u to track_error (in next iteration, this is automatically u_old)
-#        
-#          self.y_ddot = self.y_ddot + self.dt*(-3*self.omega_cutoff.dot(self.y_ddot) - 3*(self.omega_cutoff**2).dot(self.y_dot) - (self.omega_cutoff**3).dot(self.y) + 3*(self.omega_cutoff**2).dot(self.u_dot) + (self.omega_cutoff**3).dot(self.u) )
-#          self.y_dot = self.y_dot + self.dt*(self.y_ddot)
-#          self.y = self.y + self.dt*(self.y_dot)
+      # first find derivative of input signal (i.e. u = track_error, u_dot = d/dt(track_error) )
+      self.u_dot = 1.0/self.dt*(track_error - self.u) # u_dot = 1/dt*(u - u_old)
+      self.u = track_error # set current u to track_error (in next iteration, this is automatically u_old)
+
+      self.y_ddot = self.y_ddot + self.dt*(-3*self.omega_cutoff.dot(self.y_ddot) - 3*(self.omega_cutoff**2).dot(self.y_dot) - (self.omega_cutoff**3).dot(self.y) + 3*(self.omega_cutoff**2).dot(self.u_dot) + (self.omega_cutoff**3).dot(self.u) )
+      self.y_dot = self.y_dot + self.dt*(self.y_ddot)
+      self.y = self.y + self.dt*(self.y_dot)
         
       # low filter output is L1 desired velocity
       self.x_L1_des = self.y
