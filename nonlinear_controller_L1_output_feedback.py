@@ -244,8 +244,12 @@ class DroneController(DroneVideoDisplay):
     print "Adaptation type: ", self.Adapt_type
     print "Enable L1 Delay: ", self.enable_L1_delay
     
-
-    self.use_projection_operator = True
+    if self.Adapt_type == 2:
+      self.use_projection_operator = False
+    else:
+      self.use_projection_operator = True
+      
+    print "Use Projection: ", self.use_projection_operator
 
     ###########################################################################
     # Logging and Controller Testing
@@ -263,7 +267,7 @@ class DroneController(DroneVideoDisplay):
     self.print_L1_status = False # used for printing L1 takeover once
     self.print_L1_status_flag = True # used for printin L1 takeover once
     self.start_time = 0.0 #initialization, value is overwritten at takeoff
-    self.delay_until_L1_start = 10.0 #sec
+    self.delay_until_L1_start = 5.0 #sec
 
     # Nonlinear Controller Takeover -- when L1 response has large error or oscillations
     self.enable_DSL_takeover = False
@@ -297,7 +301,7 @@ class DroneController(DroneVideoDisplay):
     self.determineCommands_busy = False
 
     ### Now initialize L1 parameters based on L1 architecture
-    if self.L1_type == 1:
+    if self.L1_type == 1 or self.L1_type == 7:
       
       if self.simulation_flag:
         print "!!!!!  RUNNING IN SIMULATION !!!!!\n"
@@ -326,25 +330,31 @@ class DroneController(DroneVideoDisplay):
         print "L1 x-y-z position controller with piecewice constant adaptation"
         
         ### L1 low pass filter
-        kxy = 1.0
-        self.K = np.diag(np.array([kxy, kxy, 1.8]))
-        self.omega_0 = np.eye(3)
+        kxy = 1.0 # OLD low pass filter
+        self.K = np.diag(np.array([kxy, kxy, 1.8])) # OLD
+        self.omega_0 = np.eye(3) # OLD
 
-        # L1 parameter adaptation
+        ### L1 low pass filter cutoff frequency
+        omxy = 1.6
+        self.omega_cutoff = np.diag( np.array( [omxy, omxy, 0.7] ) )
+          
+        print "\nOmega_xy = ", omxy
+        print "Omega_z = ", self.omega_cutoff[2][2], "\n"
+
+        # L1 parameter adaptation - Projection Only
         self.Gamma = 1000.0
-
+ 
         ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
         # M_i(s) = m_i/(s+m_i), i = x,y,z
-
-        mxy = -25.0
-        self.A_m = np.diag(np.array([mxy, mxy, -4.5]))
+        mxy = -20.0
+        self.A_m = np.diag(np.array([mxy, mxy, -23.0]))
+        
+        print "M_xy", mxy
+        print "M_z", self.A_m[2][2], "\n"
         
       self.B_m = -self.A_m
     
       self.B_inv = np.linalg.inv(self.B_m)
-        
-        
-        
         
 
       ### Create CSV file to keep a record of the parameters that produced the recorded results
@@ -397,13 +407,13 @@ class DroneController(DroneVideoDisplay):
           # mxy -1.5, -1.8, -2.1, -2.4, -2.7, -3.0, -3.3, -3.6, -3.9, -4.2
 
           ### L1 low pass filter cutoff frequency
-          omxy = 1.5
+          omxy = 1.8
           self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.45] ) ) # NOTE: EXPERIMENTS
           
           print "\nOmega_xy = ", omxy
 
           ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
-          mxy = -3.3
+          mxy = -2.1
           self.A_m = np.diag(np.array([mxy, mxy, -1.65])) # THIRD ORDER Low Pass Filter
 
           print "M_xy", mxy, "\n"
@@ -1027,7 +1037,7 @@ class DroneController(DroneVideoDisplay):
       #print "starting higher level L1 output feedback controller"
       # use higher level L1 controllers
       
-      if self.L1_type == 1:
+      if self.L1_type == 7:
         # then use Piecewise Constant l1 output feedback on position
         
         # Update the initial L1 delay timer, if active
@@ -1122,6 +1132,72 @@ class DroneController(DroneVideoDisplay):
         #ax = (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
         #ay = (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
       
+      elif self.L1_type == 1:
+        '''
+        #########################################################################
+        # PIECEWISE CONSTANT BASED L1 OUTPUT FEEDBACK ON X                      #
+        #########################################################################
+        '''
+        # then use Piecewise-constant based l1 output feedback on position
+
+        # Once takeoff has commenced, start timer and print when L1 has taken over
+        if self.start_flight_timer:
+          duration = now.secs - self.start_time
+          if duration >= self.delay_until_L1_start:
+             self.print_L1_status = True
+             if self.print_L1_status == self.print_L1_status_flag:
+               print "\nL1 control has taken over\n"
+               self.print_L1_status_flag = False
+        else:
+          duration = 0
+
+        # First check whether drone is in flying mode
+        # Only use L1 when flying: 2 - landed, 6 - taking off, 3 - flying
+        if (self.status.drone_state != 3) or duration < self.delay_until_L1_start:
+
+          self.x_L1_des = np.reshape(des.x, (3,-1))
+          y_tilde = np.array([[0.0],[0.0],[0.0]])
+
+        else:
+          
+          # Outer proportional loop
+          self.L1_input = np.reshape(des.x, (3,-1))
+
+          # find L1 desired commands
+          self.determineL1Command(np.reshape(curr.x, (3,-1)))
+
+        
+          # append to csv file
+          with open(self.save_dir + self.current_time + 'l1_pos_output.csv','ab') as ref_model:
+            writer = csv.writer(ref_model)
+            
+            # write the values to the csv file with four digits after the decimal
+            f = '%.4f'
+            writer.writerow( np.array([ str(now.secs), str(now.nsecs), 
+              f%self.x_ref[0][0], f%self.x_ref[1][0], f%self.x_ref[2][0], 
+              f%curr.x_dot[0], f%curr.x_dot[1], f%curr.x_dot[2], 
+              f%self.sigma_hat[0][0], f%self.sigma_hat[1][0], f%self.sigma_hat[2][0], 
+              f%self.x_L1_des[0][0], f%self.x_L1_des[1][0], f%self.x_L1_des[2][0], 
+              f%self.L1_input[0][0], f%self.L1_input[1][0], f%self.L1_input[2][0], 
+              f%curr.x[0], f%curr.x[1], f%curr.x[2], 
+              f%des.x[0], f%des.x[1], f%des.x[2], 
+              0,0,0, 
+              f%curr.rpy[0], f%curr.rpy[1], f%curr.rpy[2], 
+              f%ardrone_rpy[0][0], f%ardrone_rpy[1][0], f%ardrone_rpy[2][0] ]) )
+      
+        ###########################################################################
+
+        # Z-velocity command m/sec)
+        z_velocity_out = (1.0/(self.tau_z**2))*1.1*( self.x_L1_des[2][0] - curr.x[2] )
+        
+        # calculate the desired acceleration in x and y (global coordinates, [m/s^2] )
+        ax = (2.0*self.zeta/self.tau_x)*(des.x_dot[0] - curr.x_dot[0]) + (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
+        ay = (2.0*self.zeta/self.tau_x)*(des.x_dot[1] - curr.x_dot[1]) + (1.0/(self.tau_x*self.tau_x))*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
+
+        #ax = (2.0*self.zeta/self.tau_x)*0.38*(1.0/self.dt)*(self.x_L1_des[0][0] - curr.x[0] - self.old_err[0][0]) + (1.0/(self.tau_x*self.tau_x))*1.6*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
+        #ay = (2.0*self.zeta/self.tau_x)*0.38*(1.0/self.dt)*(self.x_L1_des[1][0] - curr.x[1] - self.old_err[1][0]) + (1.0/(self.tau_x*self.tau_x))*1.6*(self.x_L1_des[1][0]-curr.x[1]) ### NOTE: x_L1_des y-position
+      
+      
       elif self.L1_type == 2:
         '''
         #########################################################################
@@ -1146,7 +1222,7 @@ class DroneController(DroneVideoDisplay):
         if (self.status.drone_state != 3) or duration < self.delay_until_L1_start:
 
           self.x_L1_des = np.reshape(des.x_dot, (3,-1))
-          self.x_L1_des[2][0] = z_velocity_out = (1.0/(self.tau_z**2))*( des.x[2] - curr.x[2] )
+          self.x_L1_des[2][0] = (1.0/(self.tau_z**2))*( des.x[2] - curr.x[2] )
           y_tilde = np.array([[0.0],[0.0],[0.0]])
 
         else:
@@ -1346,9 +1422,9 @@ class DroneController(DroneVideoDisplay):
 	    # Piecewise constant update of sigma_hat based on y_tilde
 	    ### NOTE: Implementation currently assumes A_m diagonal, use scipy.linalg expm for non-diagonal A_m
 	    
-      self.sigma_hat[0][0] = -1.0/self.B_m[0][0] * ( 1.0 / (math.exp(self.A_m[0][0]*self.dt) - 1.0) ) * (1.0/self.A_m[0][0]) * math.exp(self.A_m[0][0]*self.dt) * y_tilde[0][0]
-      self.sigma_hat[1][0] = -1.0/self.B_m[1][1] * ( 1.0 / (math.exp(self.A_m[1][1]*self.dt) - 1.0) ) * (1.0/self.A_m[1][1]) * math.exp(self.A_m[1][1]*self.dt) * y_tilde[1][0]
-      self.sigma_hat[2][0] = -1.0/self.B_m[2][2] * ( 1.0 / (math.exp(self.A_m[2][2]*self.dt) - 1.0) ) * (1.0/self.A_m[2][2]) * math.exp(self.A_m[2][2]*self.dt) * y_tilde[2][0]
+      self.sigma_hat[0][0] = -1.0/self.B_m[0][0] * ( 1.0 / (math.exp(self.A_m[0][0]*self.dt) - 1.0) ) * (self.A_m[0][0]) * math.exp(self.A_m[0][0]*self.dt) * y_tilde[0][0]
+      self.sigma_hat[1][0] = -1.0/self.B_m[1][1] * ( 1.0 / (math.exp(self.A_m[1][1]*self.dt) - 1.0) ) * (self.A_m[1][1]) * math.exp(self.A_m[1][1]*self.dt) * y_tilde[1][0]
+      self.sigma_hat[2][0] = -1.0/self.B_m[2][2] * ( 1.0 / (math.exp(self.A_m[2][2]*self.dt) - 1.0) ) * (self.A_m[2][2]) * math.exp(self.A_m[2][2]*self.dt) * y_tilde[2][0]
 	    
 	    
 #	    # calculate matrix exponential of A_m*T_s
