@@ -204,7 +204,7 @@ class DroneController(DroneVideoDisplay):
     self.sub_cur     = rospy.Subscriber('estimated_state', StateVector, self.updateCurrentState)
     self.sub_navdata = rospy.Subscriber('ardrone/navdata', Navdata, self.updateNavdata)
     self.sub_des     = rospy.Subscriber('path_coordinates', StateData, self.updateDesiredState)
-    self.sub_land_all = rospy.Subscriber('/land_all', Empty, self.SendLand)    
+    self.sub_land_all = rospy.Subscriber('/land_all', Empty, self.SendLand)
     self.sub_takeoff_all = rospy.Subscriber('/takeoff_all', Empty, self.SendTakeoff)
 
     # Control Parameters
@@ -466,7 +466,7 @@ class DroneController(DroneVideoDisplay):
     elif self.L1_type == 4:
 
       # L1 parameter adaptation
-      self.Gamma = 1500.0
+      self.Gamma = 5000.0
 
       ### Projection Operator - convex set ###
       self.sigma_hat_max = 200.0 # maximum absolute nominal value of sigma_hat
@@ -502,29 +502,32 @@ class DroneController(DroneVideoDisplay):
 
         if self.LPF_type ==3:
           ### L1 low pass filter cutoff frequency
-          omxy = 2.6
-          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.7] ) )
+          omxy = 2.7
+          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.35] ) )
 
           ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
-          mxy = -2.4
-          self.A_m = np.diag(np.array([mxy, mxy, -2.1])) # THIRD ORDER Low Pass Filter
-
-          self.P_L1_correction = 0.950#(self.tau_x**2)
-          self.D_L1_correction = 0.8#self.tau_x/(2.0*self.zeta)
-          self.P_z_L1_correction = 0.905#(self.tau_z**2)
+          mxy = -4.3
+          self.A_m = np.diag(np.array([mxy, mxy, -1.6])) # THIRD ORDER Low Pass Filter
+          
+          self.tau_x = 1.2
+          self.zeta = 0.707
+          
+          self.P_L1_correction = 1.0#0.50#(self.tau_x**2)
+          self.D_L1_correction = 1.0#0.35#self.tau_x/(2.0*self.zeta)
+          self.P_z_L1_correction = 0.6#*(self.tau_z**2)
         
         else:
           ### L1 low pass filter cutoff frequency FIRST ORDER
-          omxy = 1.45
-          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.40] ) )
+          omxy = 1.5
+          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.45] ) )
 
           ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
           mxy = -2.9
           self.A_m = np.diag(np.array([mxy, mxy, -2.0])) # FIRST ORDER Low Pass Filter
 
-          self.P_L1_correction = 1.05#(self.tau_x**2)
+          self.P_L1_correction = 1.0#(self.tau_x**2)
           self.D_L1_correction = 1.0#self.tau_x/(2.0*self.zeta)
-          self.P_z_L1_correction = 1.15#(self.tau_z**2)
+          self.P_z_L1_correction = 1.05#(self.tau_z**2)
         
       self.B_m = -self.A_m
 
