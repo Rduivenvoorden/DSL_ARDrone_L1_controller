@@ -300,6 +300,10 @@ class DroneController(DroneVideoDisplay):
 
     ### Now initialize L1 parameters based on L1 architecture
     if self.L1_type == 1:
+    
+      ### Projection Operator - convex set ###
+      self.sigma_hat_max = 200.0 # maximum absolute nominal value of sigma_hat
+      self.epsilon_sigma = 0.1 # tolerance on maximum sigma_hat
       
       if self.simulation_flag:
         print "!!!!!  RUNNING IN SIMULATION !!!!!\n"
@@ -333,19 +337,22 @@ class DroneController(DroneVideoDisplay):
         self.omega_0 = np.eye(3) # OLD
 
         ### L1 low pass filter cutoff frequency
-        omxy = 0.3
-        self.omega_cutoff = np.diag( np.array( [omxy, omxy, 0.7] ) )
+        omxy = 1.1
+        self.omega_cutoff = np.diag( np.array( [omxy, omxy, 0.8] ) )
           
         print "\nOmega_xy = ", omxy
         print "Omega_z = ", self.omega_cutoff[2][2], "\n"
 
         # L1 parameter adaptation - Projection Only
         self.Gamma = 1000.0
+        
+        self.tau_x = 0.7
+        self.zeta = 0.85
  
         ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3) ###
         # M_i(s) = m_i/(s+m_i), i = x,y,z
-        mxy = -19.0
-        self.A_m = np.diag(np.array([mxy, mxy, -22.0]))
+        mxy = -0.9
+        self.A_m = np.diag(np.array([mxy, mxy, -1.2]))
         
         print "M_xy", mxy
         print "M_z", self.A_m[2][2], "\n"
@@ -358,8 +365,8 @@ class DroneController(DroneVideoDisplay):
       ### Create CSV file to keep a record of the parameters that produced the recorded results
       with open(self.save_dir + self.current_time + 'l1_experiment_info.csv','ab') as l1_info:
         writer = csv.writer(l1_info)
-        writer.writerow(['L1_type', 'omega_cx', 'omega_cy', 'omega_cz', 'm_x', 'm_y', 'm_z', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'Gamma'])
-        writer.writerow(np.array( [self.L1_type, self.omega_cutoff[0][0], self.omega_cutoff[1][1], self.omega_cutoff[2][2], self.A_m[0][0], self.A_m[1][1], self.A_m[2][2], 0,0,0, 0,0,0, self.Gamma ] ))
+        writer.writerow(['L1_type', 'omega_cx', 'omega_cy', 'omega_cz', 'm_x', 'm_y', 'm_z', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'Gamma', 'LPF_type'])
+        writer.writerow(np.array( [self.L1_type, self.omega_cutoff[0][0], self.omega_cutoff[1][1], self.omega_cutoff[2][2], self.A_m[0][0], self.A_m[1][1], self.A_m[2][2], 0,0,0, 0,0,0, self.Gamma, self.LPF_type ] ))
 
     
     elif self.L1_type == 2:
@@ -502,19 +509,19 @@ class DroneController(DroneVideoDisplay):
 
         if self.LPF_type ==3:
           ### L1 low pass filter cutoff frequency
-          omxy = 2.7
-          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.35] ) )
+          omxy = 3.2
+          self.omega_cutoff = np.diag( np.array( [omxy, omxy, 1.45] ) )
 
           ### Reference Model -- first-order reference model M(s) = m/(s+m)*eye(3)  ###  M_i(s) = m_i/(s+m_i), i = x,y,z
-          mxy = -4.3
-          self.A_m = np.diag(np.array([mxy, mxy, -1.6])) # THIRD ORDER Low Pass Filter
+          mxy = -4.0
+          self.A_m = np.diag(np.array([mxy, mxy, -1.65])) # THIRD ORDER Low Pass Filter
           
-          self.tau_x = 1.2
-          self.zeta = 0.707
+          self.tau_x = 1.1
+          self.zeta = 0.8
           
-          self.P_L1_correction = 1.0#0.50#(self.tau_x**2)
-          self.D_L1_correction = 1.0#0.35#self.tau_x/(2.0*self.zeta)
-          self.P_z_L1_correction = 0.6#*(self.tau_z**2)
+          self.P_L1_correction = 1.0#0.50#(self.tau_x**2) # OLD
+          self.D_L1_correction = 1.0#0.35#self.tau_x/(2.0*self.zeta) # OLD
+          self.P_z_L1_correction = 0.35#*(self.tau_z**2)
         
         else:
           ### L1 low pass filter cutoff frequency FIRST ORDER
@@ -1049,8 +1056,8 @@ class DroneController(DroneVideoDisplay):
 
           # find L1 desired commands
           self.determineL1Command(np.reshape(curr.x, (3,-1)))
-
-        
+          
+          
           # append to csv file
           with open(self.save_dir + self.current_time + 'l1_pos_output.csv','ab') as ref_model:
             writer = csv.writer(ref_model)
@@ -1072,7 +1079,7 @@ class DroneController(DroneVideoDisplay):
         ###########################################################################
 
         # Z-velocity command m/sec)
-        z_velocity_out = (1.0/(self.tau_z**2))*1.2*( self.x_L1_des[2][0] - curr.x[2] )
+        z_velocity_out = (1.0/(self.tau_z**2))*1.2*( max(0,self.x_L1_des[2][0]) - curr.x[2] )
         
         # calculate the desired acceleration in x and y (global coordinates, [m/s^2] )
         ax = (2.0*self.zeta/self.tau_x)*1.0*(des.x_dot[0] - curr.x_dot[0]) + (1.0/(self.tau_x*self.tau_x))*1.0*(self.x_L1_des[0][0]-curr.x[0]) ### NOTE: x_L1_des x-position
