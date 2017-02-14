@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-""" L1 adaptive controller implementation.
+"""L1 adaptive controller implementation.
 
 Rikky Duivenvoorden
 
